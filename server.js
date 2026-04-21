@@ -396,6 +396,9 @@ app.put('/api/cobranza/pagar-por-nombre', verificarToken, async (req, res) => {
 });
 
 // ========== INICIAR SERVIDOR ==========
+// Al final del archivo, antes de app.listen, agregar:
+const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
