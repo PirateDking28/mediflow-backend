@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3000;
 
 // Middlewares
 app.use(cors({
-    origin: 'http://localhost:3001',
+    origin: 'https://mediflow-frontend.vercel.app',
     credentials: true
 }));
 app.use(express.json());
