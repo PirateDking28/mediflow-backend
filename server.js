@@ -16,11 +16,10 @@ app.use(express.json());
 
 // Base de datos
 const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'mediflow_db',
-    password: 'admin123', // Cambie por su contraseña
-    port: 5432,
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false
+    }
 });
 
 // Clave secreta para JWT
