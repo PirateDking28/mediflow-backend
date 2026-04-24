@@ -9,12 +9,7 @@ const app = express();
 
 // Middlewares
 app.use(cors({
-    origin: [
-        'https://mediflow-frontend.vercel.app',
-        'https://mediflow-frontend-chi.vercel.app',
-        'http://localhost:3000',
-        'http://localhost:3001'
-    ],
+    origin: '*',
     credentials: true
 }));
 app.use(express.json());
