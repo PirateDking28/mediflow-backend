@@ -14,7 +14,14 @@ app.use(cors({
 }));
 app.use(express.json());
 
+
 // Base de datos
+
+console.log('=== DEBUG ===');
+console.log('DATABASE_URL existe?', process.env.DATABASE_URL ? 'SÍ' : 'NO');
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? process.env.DATABASE_URL.substring(0, 50) + '...' : 'No definida');
+console.log('=============');
+
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
