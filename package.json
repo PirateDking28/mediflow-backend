@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
   "name": "backend_dev",
   "version": "1.0.0",
   "description": "",
@@ -22,4 +23,28 @@
   "devDependencies": {
     "nodemon": "^3.1.14"
   }
+=======
+  "name": "mediflow-backend",
+  "version": "1.0.0",
+  "description": "Backend de MediFlow Pro - Sistema de gestion para consultorios medicos",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "pg": "^8.11.3",
+    "bcrypt": "^5.1.1",
+    "jsonwebtoken": "^9.0.2",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": ["medical", "healthtech", "clinic-management"],
+  "author": "MediFlow Pro",
+  "license": "ISC"
+>>>>>>> 035390dd42ca72c5c2be7a30612669d9251f299f
 }
