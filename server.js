@@ -8,12 +8,21 @@ require('dotenv').config();
 const app = express();
 
 // Middlewares
+// Configuración CORS para permitir Vercel
 app.use(cors({
-    origin: '*',
-    credentials: true
+    origin: [
+        'https://mediflow-frontend.vercel.app',
+        'https://mediflow-frontend-tau.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:3001'
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express.json());
 
+// Manejar preflight requests
+app.options('*', cors());
 
 // Base de datos
 
