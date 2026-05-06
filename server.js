@@ -209,15 +209,21 @@ app.get('/api/cobranza/activas', verificarToken, async (req, res) => {
     }
 });
 
-app.get('/api/cobranza/historial', verificarToken, async (req, res) => {
+aapp.get('/api/cobranza/historial', verificarToken, async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM cobranza WHERE consultorio_id = $1 AND estado = $2 AND fecha >= CURRENT_DATE - INTERVAL $3', [req.usuario.id, 'pagado', '7 days']);
+        const result = await pool.query(
+            `SELECT * FROM cobranza 
+             WHERE consultorio_id = $1 
+               AND estado = $2 
+               AND fecha >= CURRENT_DATE - INTERVAL '7 days'`,
+            [req.usuario.id, 'pagado']
+        );
         res.json({ historial: result.rows });
     } catch (error) {
+        console.error('Error en historial:', error);
         res.status(500).json({ error: error.message });
     }
 });
-
 // ========== RUTA PRINCIPAL ==========
 app.get('/', (req, res) => {
     res.json({ mensaje: 'Backend funcionando 🚀' });
