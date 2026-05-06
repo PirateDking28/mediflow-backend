@@ -209,7 +209,7 @@ app.get('/api/cobranza/activas', verificarToken, async (req, res) => {
     }
 });
 
-aapp.get('/api/cobranza/historial', verificarToken, async (req, res) => {
+app.get('/api/cobranza/historial', verificarToken, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT * FROM cobranza 
