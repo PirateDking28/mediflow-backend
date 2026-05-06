@@ -1,62 +1,86 @@
-const usuarioModel = require('../models/usuario');
+const pool = require('../db/connection');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
+const JWT_SECRET = 'mediFlow_secreto_2026';
+
+// ========== REGISTRO DE NUEVO CONSULTORIO ==========
 const registrar = async (req, res) => {
     try {
-        const { nombre, email, password, telefono, direccion } = req.body;
-        
+        const { nombre, email, password, telefono, direccion, ruc } = req.body;
+
         if (!nombre || !email || !password) {
-            return res.status(400).json({ error: 'Faltan campos requeridos' });
+            return res.status(400).json({ exito: false, mensaje: 'Nombre, email y contraseña son requeridos' });
         }
-        
-        const existe = await usuarioModel.encontrarPorEmail(email);
-        if (existe) {
-            return res.status(400).json({ error: 'Email ya registrado' });
+
+        // Verificar si el email ya existe
+        const existe = await pool.query('SELECT id FROM consultorios WHERE email = $1', [email]);
+        if (existe.rows.length > 0) {
+            return res.status(400).json({ exito: false, mensaje: 'El email ya está registrado' });
         }
-        
-        const { consultorio, usuario } = await usuarioModel.crearConsultorio(nombre, email, password, telefono, direccion);
-        res.status(201).json({ message: 'Consultorio registrado exitosamente', consultorio, usuario });
+
+        const saltRounds = 10;
+        const password_hash = await bcrypt.hash(password, saltRounds);
+
+        const result = await pool.query(
+            `INSERT INTO consultorios (nombre, email, password_hash, telefono, direccion, ruc) 
+             VALUES ($1, $2, $3, $4, $5, $6) 
+             RETURNING id, nombre, email, plan, medicos_max`,
+            [nombre, email, password_hash, telefono, direccion, ruc]
+        );
+
+        res.status(201).json({ exito: true, mensaje: 'Consultorio registrado correctamente', consultorio: result.rows[0] });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: 'Error en el servidor' });
+        res.status(500).json({ exito: false, mensaje: error.message });
     }
 };
 
+// ========== LOGIN ==========
 const login = async (req, res) => {
     try {
         const { email, password } = req.body;
-        
-        const usuario = await usuarioModel.encontrarPorEmail(email);
-        if (!usuario) {
-            return res.status(401).json({ error: 'Credenciales incorrectas' });
+
+        const result = await pool.query(
+            'SELECT id, nombre, email, password_hash, plan, medicos_max, activo FROM consultorios WHERE email = $1',
+            [email]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
         }
-        
-        const passwordValida = await bcrypt.compare(password, usuario.password_hash);
+
+        const consultorio = result.rows[0];
+
+        if (!consultorio.activo) {
+            return res.status(401).json({ exito: false, mensaje: 'Cuenta desactivada' });
+        }
+
+        const passwordValida = await bcrypt.compare(password, consultorio.password_hash);
         if (!passwordValida) {
-            return res.status(401).json({ error: 'Credenciales incorrectas' });
+            return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
         }
-        
+
         const token = jwt.sign(
-            { id: usuario.id, email: usuario.email, rol: usuario.rol, consultorioId: usuario.consultorio_id },
-            process.env.JWT_SECRET,
+            { id: consultorio.id, email: consultorio.email, nombre: consultorio.nombre, plan: consultorio.plan, medicos_max: consultorio.medicos_max },
+            JWT_SECRET,
             { expiresIn: '24h' }
         );
-        
+
         res.json({
-            message: 'Login exitoso',
+            exito: true,
             token,
-            usuario: {
-                id: usuario.id,
-                nombre: usuario.nombre,
-                email: usuario.email,
-                rol: usuario.rol,
-                consultorio: usuario.consultorio_nombre
+            consultorio: {
+                id: consultorio.id,
+                nombre: consultorio.nombre,
+                email: consultorio.email,
+                plan: consultorio.plan,
+                medicos_max: consultorio.medicos_max
             }
         });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: 'Error en el servidor' });
+        res.status(500).json({ exito: false, mensaje: error.message });
     }
 };
 
