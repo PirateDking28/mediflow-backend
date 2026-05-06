@@ -8,148 +8,222 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-console.log('🔧 Iniciando configuración...');
-
-// ========== CORS ==========
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // ========== CONEXIÓN A BASE DE DATOS ==========
-console.log('🔧 Conectando a base de datos...');
-
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
 
-pool.connect((err) => {
-    if (err) {
-        console.error('❌ Error conectando a la base de datos:', err);
-    } else {
-        console.log('✅ Conexión a base de datos exitosa');
+// ========== MIDDLEWARE DE AUTENTICACIÓN ==========
+const verificarToken = (req, res, next) => {
+    const token = req.headers['authorization']?.split(' ')[1];
+    if (!token) {
+        return res.status(401).json({ exito: false, mensaje: 'Token no proporcionado' });
     }
-});
-
-// ========== ENDPOINT PARA CREAR TABLA CONSULTORIOS ==========
-app.get('/api/crear-tablas', async (req, res) => {
     try {
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS consultorios (
-                id SERIAL PRIMARY KEY,
-                nombre VARCHAR(100) NOT NULL,
-                email VARCHAR(100) UNIQUE NOT NULL,
-                password_hash VARCHAR(255) NOT NULL,
-                telefono VARCHAR(50),
-                direccion TEXT,
-                plan VARCHAR(20) DEFAULT 'basico',
-                medicos_max INTEGER DEFAULT 5,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        res.json({ mensaje: 'Tabla consultorios creada exitosamente' });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'mediFlow_secreto_2026');
+        req.usuario = decoded;
+        next();
     } catch (error) {
-        console.error('Error al crear tabla:', error);
-        res.status(500).json({ error: error.message });
+        return res.status(401).json({ exito: false, mensaje: 'Token inválido' });
     }
-});
+};
 
-// ========== ENDPOINT DE REGISTRO ==========
+// ========== ENDPOINTS DE AUTENTICACIÓN ==========
 app.post('/api/auth/registro', async (req, res) => {
     try {
         const { nombre, email, password, telefono, direccion } = req.body;
-        
-        console.log('📝 Intento de registro:', { nombre, email });
-        
         if (!nombre || !email || !password) {
-            return res.status(400).json({ exito: false, mensaje: 'Nombre, email y contraseña son requeridos' });
+            return res.status(400).json({ exito: false, mensaje: 'Faltan campos' });
         }
-        
-        // Verificar si el email ya existe
         const existe = await pool.query('SELECT id FROM consultorios WHERE email = $1', [email]);
         if (existe.rows.length > 0) {
             return res.status(400).json({ exito: false, mensaje: 'El email ya está registrado' });
         }
-        
         const password_hash = await bcrypt.hash(password, 10);
-        
         const result = await pool.query(
             `INSERT INTO consultorios (nombre, email, password_hash, telefono, direccion) 
-             VALUES ($1, $2, $3, $4, $5) 
-             RETURNING id, nombre, email`,
+             VALUES ($1, $2, $3, $4, $5) RETURNING id, nombre, email`,
             [nombre, email, password_hash, telefono, direccion]
         );
-        
-        console.log('✅ Registro exitoso:', result.rows[0]);
-        res.status(201).json({ exito: true, mensaje: 'Consultorio registrado correctamente', consultorio: result.rows[0] });
+        res.status(201).json({ exito: true, mensaje: 'Registrado', consultorio: result.rows[0] });
     } catch (error) {
-        console.error('❌ Error en registro:', error);
+        console.error(error);
         res.status(500).json({ exito: false, mensaje: error.message });
     }
 });
 
-// ========== ENDPOINT DE LOGIN ==========
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-        
-        console.log('🔐 Intento de login:', email);
-        
-        const result = await pool.query(
-            `SELECT * FROM consultorios WHERE email = $1`,
-            [email]
-        );
-        
+        const result = await pool.query(`SELECT * FROM consultorios WHERE email = $1`, [email]);
         if (result.rows.length === 0) {
-            console.log('❌ Usuario no encontrado:', email);
             return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
         }
-        
         const consultorio = result.rows[0];
         const passwordValida = await bcrypt.compare(password, consultorio.password_hash);
-        
         if (!passwordValida) {
-            console.log('❌ Contraseña incorrecta para:', email);
             return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
         }
-        
         const token = jwt.sign(
             { id: consultorio.id, email: consultorio.email, nombre: consultorio.nombre },
             process.env.JWT_SECRET || 'mediFlow_secreto_2026',
             { expiresIn: '24h' }
         );
-        
-        console.log('✅ Login exitoso:', email);
-        res.json({
-            exito: true,
-            token,
-            usuario: {
-                id: consultorio.id,
-                nombre: consultorio.nombre,
-                email: consultorio.email,
-                rol: 'admin'
-            }
-        });
+        res.json({ exito: true, token, usuario: { id: consultorio.id, nombre: consultorio.nombre, email: consultorio.email, rol: 'admin' } });
     } catch (error) {
-        console.error('❌ Error en login:', error);
+        console.error(error);
         res.status(500).json({ exito: false, mensaje: error.message });
     }
 });
 
-// ========== ENDPOINT DE PRUEBA ==========
-app.get('/api/test', (req, res) => {
-    console.log('📡 Petición a /api/test recibida');
-    res.json({ mensaje: 'Test exitoso', timestamp: new Date() });
+// ========== ENDPOINTS DE MÉDICOS ==========
+app.get('/api/medicos', verificarToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM medicos WHERE consultorio_id = $1', [req.usuario.id]);
+        res.json({ medicos: result.rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
-// ========== RUTA RAIZ ==========
+app.post('/api/medicos', verificarToken, async (req, res) => {
+    try {
+        const { nombre, email, password, especialidad, cedula, telefono } = req.body;
+        const password_hash = await bcrypt.hash(password, 10);
+        const usuarioResult = await pool.query(
+            'INSERT INTO usuarios (consultorio_id, nombre, email, password_hash, rol, activo) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+            [req.usuario.id, nombre, email, password_hash, 'medico', true]
+        );
+        await pool.query(
+            'INSERT INTO medicos (usuario_id, especialidad, cedula, telefono, consultorio_id) VALUES ($1, $2, $3, $4, $5)',
+            [usuarioResult.rows[0].id, especialidad, cedula, telefono, req.usuario.id]
+        );
+        res.status(201).json({ message: 'Médico creado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ========== ENDPOINTS DE PACIENTES ==========
+app.get('/api/pacientes', verificarToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM pacientes WHERE consultorio_id = $1', [req.usuario.id]);
+        res.json({ pacientes: result.rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/pacientes', verificarToken, async (req, res) => {
+    try {
+        const { nombre, email, telefono, fecha_nacimiento, direccion } = req.body;
+        const result = await pool.query(
+            'INSERT INTO pacientes (consultorio_id, nombre, email, telefono, fecha_nacimiento, direccion, activo) VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING *',
+            [req.usuario.id, nombre, email, telefono, fecha_nacimiento, direccion]
+        );
+        res.status(201).json({ message: 'Paciente creado', paciente: result.rows[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ========== ENDPOINTS DE CITAS ==========
+app.get('/api/citas', verificarToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM citas WHERE consultorio_id = $1', [req.usuario.id]);
+        res.json({ citas: result.rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/citas', verificarToken, async (req, res) => {
+    try {
+        const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
+        const result = await pool.query(
+            'INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora, duracion, notas, estado_cita, registrado_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+            [req.usuario.id, paciente_id, medico_id, fecha_hora, duracion, notas, 'pendiente', req.usuario.id]
+        );
+        res.status(201).json({ message: 'Cita creada', cita: result.rows[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ========== ENDPOINTS DE SERVICIOS ==========
+app.get('/api/servicios', verificarToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM servicios WHERE consultorio_id = $1', [req.usuario.id]);
+        res.json({ servicios: result.rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/servicios', verificarToken, async (req, res) => {
+    try {
+        const { nombre, descripcion, precio } = req.body;
+        const result = await pool.query(
+            'INSERT INTO servicios (consultorio_id, nombre, descripcion, precio, activo) VALUES ($1, $2, $3, $4, true) RETURNING *',
+            [req.usuario.id, nombre, descripcion, precio]
+        );
+        res.status(201).json({ message: 'Servicio creado', servicio: result.rows[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ========== ENDPOINTS DE COBRANZA ==========
+app.get('/api/cobranza', verificarToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM cobranza WHERE consultorio_id = $1', [req.usuario.id]);
+        res.json({ deudas: result.rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/cobranza', verificarToken, async (req, res) => {
+    try {
+        const { paciente_id, cita_id, monto, concepto, notas } = req.body;
+        const result = await pool.query(
+            'INSERT INTO cobranza (consultorio_id, paciente_id, cita_id, monto, concepto, notas, estado, registrado_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+            [req.usuario.id, paciente_id, cita_id, monto, concepto, notas, 'pendiente', req.usuario.id]
+        );
+        res.status(201).json({ message: 'Deuda creada', deuda: result.rows[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/cobranza/activas', verificarToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM cobranza WHERE consultorio_id = $1 AND estado != $2', [req.usuario.id, 'pagado']);
+        res.json({ deudas: result.rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/cobranza/historial', verificarToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM cobranza WHERE consultorio_id = $1 AND estado = $2 AND fecha >= CURRENT_DATE - INTERVAL $3', [req.usuario.id, 'pagado', '7 days']);
+        res.json({ historial: result.rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ========== RUTA PRINCIPAL ==========
 app.get('/', (req, res) => {
     res.json({ mensaje: 'Backend funcionando 🚀' });
 });
 
 // ========== INICIAR SERVIDOR ==========
-console.log('🔧 Configurando rutas...');
-console.log('🔧 Iniciando servidor...');
-
 app.listen(PORT, () => {
     console.log(`✅ Servidor corriendo en puerto ${PORT}`);
 });
