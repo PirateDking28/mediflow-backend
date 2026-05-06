@@ -272,6 +272,9 @@ app.get('/api/migrar', async (req, res) => {
     }
 });
 
+app.get('/api/test', (req, res) => {
+    res.json({ mensaje: 'El servidor funciona correctamente' });
+});
 // ========== INICIAR SERVIDOR ==========
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
