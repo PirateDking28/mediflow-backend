@@ -122,6 +122,27 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
+app.get('/api/crear-tablas', async (req, res) => {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS consultorios (
+                id SERIAL PRIMARY KEY,
+                nombre VARCHAR(100) NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                telefono VARCHAR(50),
+                direccion TEXT,
+                plan VARCHAR(20) DEFAULT 'basico',
+                medicos_max INTEGER DEFAULT 5,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        res.json({ mensaje: 'Tabla consultorios creada exitosamente' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`✅ Servidor corriendo en puerto ${PORT}`);
 });
