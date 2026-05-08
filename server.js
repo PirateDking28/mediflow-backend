@@ -403,6 +403,70 @@ app.get('/api/limpiar-bd', verificarToken, async (req, res) => {
     }
 });
 
+app.put('/api/pacientes/:id', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nombre, email, telefono, fecha_nacimiento, direccion, activo } = req.body;
+        
+        const result = await pool.query(
+            `UPDATE pacientes 
+             SET nombre = $1, email = $2, telefono = $3, fecha_nacimiento = $4, direccion = $5, activo = $6
+             WHERE id = $7 AND consultorio_id = $8
+             RETURNING *`,
+            [nombre, email, telefono, fecha_nacimiento, direccion, activo, id, req.usuario.id]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Paciente no encontrado' });
+        }
+        
+        res.json({ message: 'Paciente actualizado', paciente: result.rows[0] });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/pacientes/:id', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const result = await pool.query(
+            `UPDATE pacientes SET activo = false WHERE id = $1 AND consultorio_id = $2 RETURNING id`,
+            [id, req.usuario.id]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Paciente no encontrado' });
+        }
+        
+        res.json({ message: 'Paciente desactivado exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/pacientes/:id/activar', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const result = await pool.query(
+            `UPDATE pacientes SET activo = true WHERE id = $1 AND consultorio_id = $2 RETURNING id`,
+            [id, req.usuario.id]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Paciente no encontrado' });
+        }
+        
+        res.json({ message: 'Paciente activado exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ========== INICIAR SERVIDOR ==========
 app.listen(PORT, () => {
     console.log(`✅ Servidor corriendo en puerto ${PORT}`);
