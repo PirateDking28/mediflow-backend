@@ -83,9 +83,16 @@ app.post('/api/auth/login', async (req, res) => {
 // ========== ENDPOINTS DE MÉDICOS ==========
 app.get('/api/medicos', verificarToken, async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM medicos WHERE consultorio_id = $1', [req.usuario.id]);
+        const result = await pool.query(
+            `SELECT m.*, u.nombre, u.email, u.activo 
+             FROM medicos m
+             JOIN usuarios u ON m.usuario_id = u.id
+             WHERE u.consultorio_id = $1`,
+            [req.usuario.id]
+        );
         res.json({ medicos: result.rows });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -104,6 +111,95 @@ app.post('/api/medicos', verificarToken, async (req, res) => {
         );
         res.status(201).json({ message: 'Médico creado' });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/medicos/:id', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nombre, email, especialidad, cedula, telefono, activo } = req.body;
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Actualizar en tabla usuarios
+            await client.query(
+                `UPDATE usuarios 
+                 SET nombre = $1, email = $2, activo = $3
+                 WHERE id = (SELECT usuario_id FROM medicos WHERE id = $4)`,
+                [nombre, email, activo, id]
+            );
+
+            // Actualizar en tabla medicos
+            const result = await client.query(
+                `UPDATE medicos 
+                 SET especialidad = $1, cedula = $2, telefono = $3
+                 WHERE id = $4
+                 RETURNING *`,
+                [especialidad, cedula, telefono, id]
+            );
+
+            if (result.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ error: 'Médico no encontrado' });
+            }
+
+            await client.query('COMMIT');
+            res.json({ message: 'Médico actualizado exitosamente' });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/medicos/:id/activar', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const result = await pool.query(
+            `UPDATE usuarios SET activo = true 
+             WHERE id = (SELECT usuario_id FROM medicos WHERE id = $1)
+             RETURNING id`,
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Médico no encontrado' });
+        }
+
+        res.json({ message: 'Médico activado exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/medicos/:id', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const result = await pool.query(
+            `UPDATE usuarios SET activo = false 
+             WHERE id = (SELECT usuario_id FROM medicos WHERE id = $1)
+             RETURNING id`,
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Médico no encontrado' });
+        }
+
+        res.json({ message: 'Médico desactivado exitosamente' });
+    } catch (error) {
+        console.error(error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -407,7 +503,7 @@ app.put('/api/pacientes/:id', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
         const { nombre, email, telefono, fecha_nacimiento, direccion, activo } = req.body;
-        
+
         const result = await pool.query(
             `UPDATE pacientes 
              SET nombre = $1, email = $2, telefono = $3, fecha_nacimiento = $4, direccion = $5, activo = $6
@@ -415,11 +511,11 @@ app.put('/api/pacientes/:id', verificarToken, async (req, res) => {
              RETURNING *`,
             [nombre, email, telefono, fecha_nacimiento, direccion, activo, id, req.usuario.id]
         );
-        
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Paciente no encontrado' });
         }
-        
+
         res.json({ message: 'Paciente actualizado', paciente: result.rows[0] });
     } catch (error) {
         console.error(error);
@@ -430,16 +526,16 @@ app.put('/api/pacientes/:id', verificarToken, async (req, res) => {
 app.delete('/api/pacientes/:id', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         const result = await pool.query(
             `UPDATE pacientes SET activo = false WHERE id = $1 AND consultorio_id = $2 RETURNING id`,
             [id, req.usuario.id]
         );
-        
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Paciente no encontrado' });
         }
-        
+
         res.json({ message: 'Paciente desactivado exitosamente' });
     } catch (error) {
         console.error(error);
@@ -450,16 +546,16 @@ app.delete('/api/pacientes/:id', verificarToken, async (req, res) => {
 app.put('/api/pacientes/:id/activar', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         const result = await pool.query(
             `UPDATE pacientes SET activo = true WHERE id = $1 AND consultorio_id = $2 RETURNING id`,
             [id, req.usuario.id]
         );
-        
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Paciente no encontrado' });
         }
-        
+
         res.json({ message: 'Paciente activado exitosamente' });
     } catch (error) {
         console.error(error);
