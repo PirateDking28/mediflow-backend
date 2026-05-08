@@ -27,6 +27,7 @@ app.get('/', (req, res) => {
     res.json({ message: 'Backend funcionando 🚀' });
 });
 
+
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
