@@ -273,6 +273,74 @@ app.post('/api/servicios', verificarToken, async (req, res) => {
     }
 });
 
+app.delete('/api/servicios/:id', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const result = await pool.query(
+            `UPDATE servicios SET activo = false 
+             WHERE id = $1 AND consultorio_id = $2
+             RETURNING id`,
+            [id, req.usuario.id]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Servicio no encontrado' });
+        }
+        
+        res.json({ message: 'Servicio desactivado exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/servicios/:id/activar', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const result = await pool.query(
+            `UPDATE servicios SET activo = true 
+             WHERE id = $1 AND consultorio_id = $2
+             RETURNING id`,
+            [id, req.usuario.id]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Servicio no encontrado' });
+        }
+        
+        res.json({ message: 'Servicio activado exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/servicios/:id', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nombre, descripcion, precio, activo } = req.body;
+        
+        const result = await pool.query(
+            `UPDATE servicios 
+             SET nombre = $1, descripcion = $2, precio = $3, activo = $4
+             WHERE id = $5 AND consultorio_id = $6
+             RETURNING *`,
+            [nombre, descripcion, precio, activo, id, req.usuario.id]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Servicio no encontrado' });
+        }
+        
+        res.json({ message: 'Servicio actualizado', servicio: result.rows[0] });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ========== ENDPOINTS DE COBRANZA ==========
 app.get('/api/cobranza', verificarToken, async (req, res) => {
     try {
