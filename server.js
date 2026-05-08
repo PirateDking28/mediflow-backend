@@ -245,7 +245,7 @@ app.get('/api/crear-todas-tablas', async (req, res) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        
+
         // Tabla usuarios
         await pool.query(`
             CREATE TABLE IF NOT EXISTS usuarios (
@@ -260,7 +260,7 @@ app.get('/api/crear-todas-tablas', async (req, res) => {
                 UNIQUE(consultorio_id, email)
             )
         `);
-        
+
         // Tabla medicos
         await pool.query(`
             CREATE TABLE IF NOT EXISTS medicos (
@@ -272,7 +272,7 @@ app.get('/api/crear-todas-tablas', async (req, res) => {
                 telefono VARCHAR(20)
             )
         `);
-        
+
         // Tabla pacientes
         await pool.query(`
             CREATE TABLE IF NOT EXISTS pacientes (
@@ -287,7 +287,7 @@ app.get('/api/crear-todas-tablas', async (req, res) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        
+
         // Tabla citas
         await pool.query(`
             CREATE TABLE IF NOT EXISTS citas (
@@ -303,7 +303,7 @@ app.get('/api/crear-todas-tablas', async (req, res) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        
+
         // Tabla servicios
         await pool.query(`
             CREATE TABLE IF NOT EXISTS servicios (
@@ -316,7 +316,7 @@ app.get('/api/crear-todas-tablas', async (req, res) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        
+
         // Tabla cita_servicios
         await pool.query(`
             CREATE TABLE IF NOT EXISTS cita_servicios (
@@ -329,7 +329,7 @@ app.get('/api/crear-todas-tablas', async (req, res) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        
+
         // Tabla cobranza
         await pool.query(`
             CREATE TABLE IF NOT EXISTS cobranza (
@@ -348,7 +348,7 @@ app.get('/api/crear-todas-tablas', async (req, res) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        
+
         // Tabla pagos
         await pool.query(`
             CREATE TABLE IF NOT EXISTS pagos (
@@ -360,10 +360,45 @@ app.get('/api/crear-todas-tablas', async (req, res) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        
+
         res.json({ mensaje: 'Todas las tablas fueron creadas exitosamente' });
     } catch (error) {
         console.error('Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ========== ENDPOINT TEMPORAL PARA LIMPIAR BASE DE DATOS ==========
+app.get('/api/limpiar-bd', verificarToken, async (req, res) => {
+    // Solo admin puede ejecutar esto (verificar que sea admin)
+    if (req.usuario.rol !== 'admin') {
+        return res.status(403).json({ error: 'No autorizado' });
+    }
+
+    try {
+        await pool.query('TRUNCATE TABLE pagos CASCADE');
+        await pool.query('TRUNCATE TABLE cobranza CASCADE');
+        await pool.query('TRUNCATE TABLE cita_servicios CASCADE');
+        await pool.query('TRUNCATE TABLE citas CASCADE');
+        await pool.query('TRUNCATE TABLE servicios CASCADE');
+        await pool.query('TRUNCATE TABLE pacientes CASCADE');
+        await pool.query('TRUNCATE TABLE medicos CASCADE');
+        await pool.query('TRUNCATE TABLE usuarios CASCADE');
+        await pool.query('TRUNCATE TABLE consultorios CASCADE');
+
+        // Reiniciar secuencias
+        await pool.query('ALTER SEQUENCE consultorios_id_seq RESTART WITH 1');
+        await pool.query('ALTER SEQUENCE usuarios_id_seq RESTART WITH 1');
+        await pool.query('ALTER SEQUENCE medicos_id_seq RESTART WITH 1');
+        await pool.query('ALTER SEQUENCE pacientes_id_seq RESTART WITH 1');
+        await pool.query('ALTER SEQUENCE citas_id_seq RESTART WITH 1');
+        await pool.query('ALTER SEQUENCE servicios_id_seq RESTART WITH 1');
+        await pool.query('ALTER SEQUENCE cobranza_id_seq RESTART WITH 1');
+        await pool.query('ALTER SEQUENCE pagos_id_seq RESTART WITH 1');
+
+        res.json({ mensaje: 'Base de datos limpiada exitosamente' });
+    } catch (error) {
+        console.error(error);
         res.status(500).json({ error: error.message });
     }
 });
