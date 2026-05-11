@@ -242,34 +242,29 @@ app.post('/api/citas', verificarToken, async (req, res) => {
         const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
 
         const fechaCita = new Date(fecha_hora);
-        const ahora = new Date();  // ← DECLARAR ahora
+        const ahora = new Date();
 
-        // Ajustar a hora local
-        const offset = ahora.getTimezoneOffset();
-        const ahoraLocal = new Date(ahora.getTime() - (offset * 60000));
-        const fechaCitaLocal = new Date(fechaCita.getTime() - (offset * 60000));
+        // Crear fechas para comparar solo la fecha (sin hora)
+        const hoy = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
+        const fechaCitaDate = new Date(fechaCita.getFullYear(), fechaCita.getMonth(), fechaCita.getDate());
 
-        // Validar fecha pasada
-        const hoyLocal = new Date(ahoraLocal);
-        hoyLocal.setHours(0, 0, 0, 0);
-        const fechaCitaDateLocal = new Date(fechaCitaLocal);
-        fechaCitaDateLocal.setHours(0, 0, 0, 0);
-
-        if (fechaCitaDateLocal < hoyLocal) {
+        // 1. Validar fecha pasada
+        if (fechaCitaDate < hoy) {
             return res.status(400).json({ error: 'No se pueden agendar citas en fechas pasadas' });
         }
 
-        // Si es hoy, comparar horas
-        if (fechaCitaDateLocal.getTime() === hoyLocal.getTime()) {
-            const ahoraMinutos = ahoraLocal.getHours() * 60 + ahoraLocal.getMinutes();
-            const citaMinutos = fechaCitaLocal.getHours() * 60 + fechaCitaLocal.getMinutes();
+        // 2. Si es hoy, validar hora (comparar en minutos desde medianoche)
+        if (fechaCitaDate.getTime() === hoy.getTime()) {
+            const ahoraMinutos = ahora.getHours() * 60 + ahora.getMinutes();
+            const citaMinutos = fechaCita.getHours() * 60 + fechaCita.getMinutes();
 
-            if (citaMinutos <= ahoraMinutos) {
+            // Permitir un margen de 5 minutos para evitar problemas de redondeo
+            if (citaMinutos <= ahoraMinutos - 5) {
                 return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
             }
         }
 
-        // Validar médico
+        // Validar que el médico existe
         const medicoExiste = await pool.query(
             'SELECT id FROM medicos WHERE id = $1 AND consultorio_id = $2',
             [medico_id, req.usuario.id]
@@ -278,7 +273,7 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Médico no válido' });
         }
 
-        // Validar paciente
+        // Validar que el paciente existe
         const pacienteExiste = await pool.query(
             'SELECT id FROM pacientes WHERE id = $1 AND consultorio_id = $2',
             [paciente_id, req.usuario.id]
@@ -287,7 +282,7 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Paciente no válido' });
         }
 
-        // Verificar conflicto
+        // Verificar conflicto de horario
         const conflicto = await pool.query(
             `SELECT id FROM citas 
              WHERE medico_id = $1 
@@ -313,7 +308,6 @@ app.post('/api/citas', verificarToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
 // ========== ENDPOINTS DE SERVICIOS ==========
 app.get('/api/servicios', verificarToken, async (req, res) => {
     try {
