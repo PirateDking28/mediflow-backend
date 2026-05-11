@@ -691,21 +691,23 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
         }
         horariosBase.push('20:00');
 
-        // ========== SECCIÓN MODIFICADA PARA HOY ==========
+        // ========== SECCIÓN CORREGIDA PARA HOY ==========
         if (esHoy) {
             const horaActual = ahora.getHours();
             const minutoActual = ahora.getMinutes();
 
+            // Calcular la próxima media hora (11:21 -> 11:30, 11:31 -> 12:00)
             let horaInicio = horaActual;
             let minutoInicio = 0;
 
             if (minutoActual < 30) {
-                minutoInicio = 30;
+                minutoInicio = 30;  // Ej: 11:21 -> 11:30
             } else {
-                horaInicio = horaActual + 1;
+                horaInicio = horaActual + 1;  // Ej: 11:31 -> 12:00
                 minutoInicio = 0;
             }
 
+            // Limitar hasta las 20:00
             const horariosFiltrados = [];
             for (const horario of horariosBase) {
                 const [hora, minuto] = horario.split(':').map(Number);
@@ -714,7 +716,13 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
                 }
             }
             horariosBase = horariosFiltrados;
+
+            // Log para depuración (ver en terminal de Railway)
+            console.log(`Hora actual: ${horaActual}:${minutoActual}`);
+            console.log(`Hora inicio: ${horaInicio}:${minutoInicio}`);
+            console.log(`Horarios disponibles hoy:`, horariosBase);
         }
+        // ==============================================
         // ==============================================
 
         // Obtener citas del médico en esa fecha
