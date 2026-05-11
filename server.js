@@ -241,21 +241,37 @@ app.post('/api/citas', verificarToken, async (req, res) => {
     try {
         const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
 
-        const fechaCita = new Date(fecha_hora);
+        // ========== VALIDACIÓN DE FECHA/HORA CORREGIDA ==========
+        // Crear fecha a partir de la cadena recibida
+        let fechaCita;
+        if (fecha_hora && fecha_hora.includes('T') && !fecha_hora.includes('Z')) {
+            // Si es "2026-05-11T13:30:00", añadir 'Z' para tratarla como UTC
+            fechaCita = new Date(fecha_hora + 'Z');
+        } else {
+            fechaCita = new Date(fecha_hora);
+        }
+
         const ahora = new Date();
 
-        // ========== VALIDACIÓN DE HORARIO PASADO ==========
-        if (fechaCita < ahora) {
+        // Ajustar la comparación para zona horaria local
+        const ahoraLocal = new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60000);
+        const fechaCitaLocal = new Date(fechaCita.getTime() - fechaCita.getTimezoneOffset() * 60000);
+
+        // Verificar que la fecha/hora no sea pasada
+        if (fechaCitaLocal < ahoraLocal) {
             return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
         }
-        // ==================================================
 
-        // Validar que la fecha no sea anterior a hoy
+        // Verificar que la fecha no sea anterior a hoy
         const hoy = new Date();
         hoy.setHours(0, 0, 0, 0);
-        if (fechaCita < hoy) {
+        const hoyLocal = new Date(hoy.getTime() - hoy.getTimezoneOffset() * 60000);
+        const fechaCitaDateLocal = new Date(fechaCita.getFullYear(), fechaCita.getMonth(), fechaCita.getDate());
+
+        if (fechaCitaDateLocal < hoyLocal) {
             return res.status(400).json({ error: 'No se pueden agendar citas en fechas pasadas' });
         }
+        // ======================================================
 
         // Validar que el médico existe
         const medicoExiste = await pool.query(
@@ -287,14 +303,17 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'El médico ya tiene una cita en ese horario' });
         }
 
+        // Insertar la cita
         const result = await pool.query(
-            'INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora, duracion, notas, estado_cita, registrado_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-            [req.usuario.id, paciente_id, medico_id, fecha_hora, duracion, notas, 'pendiente', req.usuario.id]
+            `INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora, duracion, notas, estado_cita, registrado_por) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+             RETURNING *`,
+            [req.usuario.id, paciente_id, medico_id, fecha_hora, duracion || 30, notas, 'pendiente', req.usuario.id]
         );
 
-        res.status(201).json({ message: 'Cita creada', cita: result.rows[0] });
+        res.status(201).json({ message: 'Cita creada exitosamente', cita: result.rows[0] });
     } catch (error) {
-        console.error(error);
+        console.error('❌ Error al crear cita:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -683,7 +702,7 @@ app.put('/api/pacientes/:id/activar', verificarToken, async (req, res) => {
 app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, res) => {
     try {
         const { medico_id, fecha } = req.params;
-        
+
         // Generar TODOS los horarios (9:00 a 20:00)
         const horariosBase = [];
         for (let hora = 9; hora <= 19; hora++) {
@@ -691,13 +710,13 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
             horariosBase.push(`${hora.toString().padStart(2, '0')}:30`);
         }
         horariosBase.push('20:00');
-        
+
         // Obtener citas ocupadas del médico en esa fecha
         const inicioDia = new Date(fecha);
         inicioDia.setHours(0, 0, 0, 0);
         const finDia = new Date(fecha);
         finDia.setHours(23, 59, 59, 999);
-        
+
         const citasOcupadas = await pool.query(
             `SELECT fecha_hora, duracion FROM citas 
              WHERE medico_id = $1 
@@ -706,24 +725,24 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
                AND fecha_hora <= $3`,
             [medico_id, inicioDia, finDia]
         );
-        
+
         // Marcar horarios ocupados
         const horariosOcupados = new Set();
         for (const cita of citasOcupadas.rows) {
             const citaHora = new Date(cita.fecha_hora);
             const duracion = cita.duracion || 30;
             const bloques = duracion / 30;
-            
+
             for (let i = 0; i < bloques; i++) {
                 const horaBloque = new Date(citaHora.getTime() + i * 30 * 60000);
                 const horaStr = `${horaBloque.getHours().toString().padStart(2, '0')}:${horaBloque.getMinutes().toString().padStart(2, '0')}`;
                 horariosOcupados.add(horaStr);
             }
         }
-        
+
         // Filtrar solos los ocupados (NO filtrar por hora actual)
         const horariosDisponibles = horariosBase.filter(horario => !horariosOcupados.has(horario));
-        
+
         res.json({ horarios: horariosDisponibles });
     } catch (error) {
         console.error(error);
