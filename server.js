@@ -636,21 +636,47 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
     try {
         const { medico_id, fecha } = req.params;
         const fechaSeleccionada = new Date(fecha);
-
+        const ahora = new Date();
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+        const esHoy = fechaSeleccionada.toDateString() === hoy.toDateString();
+        
         // Generar horarios base (cada 30 minutos desde 9:00 a 20:00)
-        const todosHorarios = [];
+        let horariosBase = [];
         for (let hora = 9; hora <= 19; hora++) {
-            todosHorarios.push(`${hora.toString().padStart(2, '0')}:00`);
-            todosHorarios.push(`${hora.toString().padStart(2, '0')}:30`);
+            horariosBase.push(`${hora.toString().padStart(2, '0')}:00`);
+            horariosBase.push(`${hora.toString().padStart(2, '0')}:30`);
         }
-        todosHorarios.push('20:00');
-
-        // Obtener citas del médico en esa fecha (no canceladas)
+        horariosBase.push('20:00');
+        
+        // Si es hoy, ajustar horarios para empezar desde la próxima media hora disponible
+        if (esHoy) {
+            const horaActual = ahora.getHours();
+            const minutoActual = ahora.getMinutes();
+            let horaInicio = horaActual;
+            let minutoInicio = minutoActual < 30 ? 30 : 0;
+            
+            if (minutoActual >= 30) {
+                horaInicio = horaActual + 1;
+                minutoInicio = 0;
+            }
+            
+            const horariosFiltrados = [];
+            for (const horario of horariosBase) {
+                const [hora, minuto] = horario.split(':').map(Number);
+                if (hora > horaInicio || (hora === horaInicio && minuto >= minutoInicio)) {
+                    horariosFiltrados.push(horario);
+                }
+            }
+            horariosBase = horariosFiltrados;
+        }
+        
+        // Obtener citas del médico en esa fecha
         const inicioDia = new Date(fechaSeleccionada);
         inicioDia.setHours(0, 0, 0, 0);
         const finDia = new Date(fechaSeleccionada);
         finDia.setHours(23, 59, 59, 999);
-
+        
         const citasOcupadas = await pool.query(
             `SELECT fecha_hora, duracion FROM citas 
              WHERE medico_id = $1 
@@ -659,39 +685,24 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
                AND fecha_hora <= $3`,
             [medico_id, inicioDia, finDia]
         );
-
+        
         // Marcar horarios ocupados
         const horariosOcupados = new Set();
         for (const cita of citasOcupadas.rows) {
             const citaHora = new Date(cita.fecha_hora);
             const duracion = cita.duracion || 30;
             const bloques = duracion / 30;
-
+            
             for (let i = 0; i < bloques; i++) {
                 const horaBloque = new Date(citaHora.getTime() + i * 30 * 60000);
                 const horaStr = `${horaBloque.getHours().toString().padStart(2, '0')}:${horaBloque.getMinutes().toString().padStart(2, '0')}`;
                 horariosOcupados.add(horaStr);
             }
         }
-
+        
         // Filtrar horarios disponibles
-        const ahora = new Date();
-        const hoy = new Date();
-        hoy.setHours(0, 0, 0, 0);
-
-        const horariosDisponibles = todosHorarios.filter(horario => {
-            // Si es hoy, no mostrar horarios pasados
-            if (fechaSeleccionada.toDateString() === hoy.toDateString()) {
-                const [hora, minuto] = horario.split(':').map(Number);
-                const horarioDate = new Date(fechaSeleccionada);
-                horarioDate.setHours(hora, minuto, 0);
-                if (horarioDate < ahora) {
-                    return false;
-                }
-            }
-            return !horariosOcupados.has(horario);
-        });
-
+        const horariosDisponibles = horariosBase.filter(horario => !horariosOcupados.has(horario));
+        
         res.json({ horarios: horariosDisponibles });
     } catch (error) {
         console.error(error);
