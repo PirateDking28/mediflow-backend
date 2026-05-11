@@ -276,18 +276,18 @@ app.post('/api/servicios', verificarToken, async (req, res) => {
 app.delete('/api/servicios/:id', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         const result = await pool.query(
             `UPDATE servicios SET activo = false 
              WHERE id = $1 AND consultorio_id = $2
              RETURNING id`,
             [id, req.usuario.id]
         );
-        
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Servicio no encontrado' });
         }
-        
+
         res.json({ message: 'Servicio desactivado exitosamente' });
     } catch (error) {
         console.error(error);
@@ -298,18 +298,18 @@ app.delete('/api/servicios/:id', verificarToken, async (req, res) => {
 app.put('/api/servicios/:id/activar', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         const result = await pool.query(
             `UPDATE servicios SET activo = true 
              WHERE id = $1 AND consultorio_id = $2
              RETURNING id`,
             [id, req.usuario.id]
         );
-        
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Servicio no encontrado' });
         }
-        
+
         res.json({ message: 'Servicio activado exitosamente' });
     } catch (error) {
         console.error(error);
@@ -321,7 +321,7 @@ app.put('/api/servicios/:id', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
         const { nombre, descripcion, precio, activo } = req.body;
-        
+
         const result = await pool.query(
             `UPDATE servicios 
              SET nombre = $1, descripcion = $2, precio = $3, activo = $4
@@ -329,11 +329,11 @@ app.put('/api/servicios/:id', verificarToken, async (req, res) => {
              RETURNING *`,
             [nombre, descripcion, precio, activo, id, req.usuario.id]
         );
-        
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Servicio no encontrado' });
         }
-        
+
         res.json({ message: 'Servicio actualizado', servicio: result.rows[0] });
     } catch (error) {
         console.error(error);
@@ -628,6 +628,74 @@ app.put('/api/pacientes/:id/activar', verificarToken, async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ========== OBTENER HORARIOS DISPONIBLES DE UN MÉDICO ==========
+app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, res) => {
+    try {
+        const { medico_id, fecha } = req.params;
+        const fechaSeleccionada = new Date(fecha);
+
+        // Generar horarios base (cada 30 minutos desde 9:00 a 20:00)
+        const todosHorarios = [];
+        for (let hora = 9; hora <= 19; hora++) {
+            todosHorarios.push(`${hora.toString().padStart(2, '0')}:00`);
+            todosHorarios.push(`${hora.toString().padStart(2, '0')}:30`);
+        }
+        todosHorarios.push('20:00');
+
+        // Obtener citas del médico en esa fecha (no canceladas)
+        const inicioDia = new Date(fechaSeleccionada);
+        inicioDia.setHours(0, 0, 0, 0);
+        const finDia = new Date(fechaSeleccionada);
+        finDia.setHours(23, 59, 59, 999);
+
+        const citasOcupadas = await pool.query(
+            `SELECT fecha_hora, duracion FROM citas 
+             WHERE medico_id = $1 
+               AND estado_cita != 'cancelada'
+               AND fecha_hora >= $2 
+               AND fecha_hora <= $3`,
+            [medico_id, inicioDia, finDia]
+        );
+
+        // Marcar horarios ocupados
+        const horariosOcupados = new Set();
+        for (const cita of citasOcupadas.rows) {
+            const citaHora = new Date(cita.fecha_hora);
+            const duracion = cita.duracion || 30;
+            const bloques = duracion / 30;
+
+            for (let i = 0; i < bloques; i++) {
+                const horaBloque = new Date(citaHora.getTime() + i * 30 * 60000);
+                const horaStr = `${horaBloque.getHours().toString().padStart(2, '0')}:${horaBloque.getMinutes().toString().padStart(2, '0')}`;
+                horariosOcupados.add(horaStr);
+            }
+        }
+
+        // Filtrar horarios disponibles
+        const ahora = new Date();
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+
+        const horariosDisponibles = todosHorarios.filter(horario => {
+            // Si es hoy, no mostrar horarios pasados
+            if (fechaSeleccionada.toDateString() === hoy.toDateString()) {
+                const [hora, minuto] = horario.split(':').map(Number);
+                const horarioDate = new Date(fechaSeleccionada);
+                horarioDate.setHours(hora, minuto, 0);
+                if (horarioDate < ahora) {
+                    return false;
+                }
+            }
+            return !horariosOcupados.has(horario);
+        });
+
+        res.json({ horarios: horariosDisponibles });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error al obtener horarios disponibles' });
     }
 });
 
