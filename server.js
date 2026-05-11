@@ -230,9 +230,37 @@ app.post('/api/pacientes', verificarToken, async (req, res) => {
 // ========== ENDPOINTS DE CITAS ==========
 app.get('/api/citas', verificarToken, async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM citas WHERE consultorio_id = $1', [req.usuario.id]);
-        res.json({ citas: result.rows });
+        const result = await pool.query(
+            `SELECT c.*, 
+                    p.nombre as paciente_nombre,
+                    u.nombre as medico_nombre
+             FROM citas c
+             JOIN pacientes p ON c.paciente_id = p.id
+             JOIN medicos m ON c.medico_id = m.id
+             JOIN usuarios u ON m.usuario_id = u.id
+             WHERE c.consultorio_id = $1 AND c.estado_cita != 'cancelada'
+             ORDER BY c.fecha_hora ASC`,
+            [req.usuario.id]
+        );
+
+        // Formatear la fecha/hora para el frontend
+        const citasFormateadas = result.rows.map(cita => {
+            const fecha = new Date(cita.fecha_hora);
+            return {
+                ...cita,
+                fecha_hora_formateada: fecha.toLocaleString('es-MX', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                })
+            };
+        });
+
+        res.json({ citas: citasFormateadas });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ error: error.message });
     }
 });
