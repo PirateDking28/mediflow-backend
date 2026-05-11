@@ -238,6 +238,7 @@ app.get('/api/citas', verificarToken, async (req, res) => {
 });
 
 app.post('/api/citas', verificarToken, async (req, res) => {
+    console.log('🚀 NUEVA VERSIÓN DEL ENDPOINT CITAS ACTIVADA');
     try {
         const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
 
@@ -308,6 +309,8 @@ app.post('/api/citas', verificarToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+
 // ========== ENDPOINTS DE SERVICIOS ==========
 app.get('/api/servicios', verificarToken, async (req, res) => {
     try {
