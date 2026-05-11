@@ -247,35 +247,31 @@ app.post('/api/citas', verificarToken, async (req, res) => {
         console.log('paciente_id:', paciente_id);
         console.log('medico_id:', medico_id);
 
-        const fechaCita = new Date(fecha_hora);
-        const ahora = new Date();
+        // Ajustar a hora local
+        const offset = ahora.getTimezoneOffset();
+        const ahoraLocal = new Date(ahora.getTime() - (offset * 60000));
+        const fechaCitaLocal = new Date(fechaCita.getTime() - (offset * 60000));
 
-        console.log('fechaCita:', fechaCita.toISOString());
-        console.log('ahora:', ahora.toISOString());
+        // Comparar fechas
+        const hoyLocal = new Date(ahoraLocal);
+        hoyLocal.setHours(0, 0, 0, 0);
+        const fechaCitaDateLocal = new Date(fechaCitaLocal);
+        fechaCitaDateLocal.setHours(0, 0, 0, 0);
 
-        // ========== VALIDACIÓN CORREGIDA PARA HOY ==========
-        const hoy = new Date();
-        hoy.setHours(0, 0, 0, 0);
-        const fechaCitaDate = new Date(fechaCita);
-        fechaCitaDate.setHours(0, 0, 0, 0);
-
-        // 1. Validar fecha pasada
-        if (fechaCitaDate < hoy) {
-            console.log('❌ Cita rechazada: fecha pasada');
+        if (fechaCitaDateLocal < hoyLocal) {
             return res.status(400).json({ error: 'No se pueden agendar citas en fechas pasadas' });
         }
 
-        // 2. Si es hoy, validar hora
-        if (fechaCitaDate.getTime() === hoy.getTime()) {
-            const ahoraMinutos = ahora.getHours() * 60 + ahora.getMinutes();
-            const citaMinutos = fechaCita.getHours() * 60 + fechaCita.getMinutes();
+        // Si es hoy, comparar horas
+        if (fechaCitaDateLocal.getTime() === hoyLocal.getTime()) {
+            const ahoraMinutos = ahoraLocal.getHours() * 60 + ahoraLocal.getMinutes();
+            const citaMinutos = fechaCitaLocal.getHours() * 60 + fechaCitaLocal.getMinutes();
 
-            // Permitir un margen de 30 minutos para la hora actual
-            if (citaMinutos <= ahoraMinutos + 30) {
-                console.log(`❌ Cita rechazada: hora pasada (ahora: ${ahoraMinutos}, cita: ${citaMinutos})`);
+            if (citaMinutos <= ahoraMinutos) {
                 return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
             }
         }
+
         // ==================================================
 
         console.log('✅ Validaciones pasadas');
