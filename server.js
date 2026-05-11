@@ -36,20 +36,27 @@ const verificarToken = (req, res, next) => {
 app.post('/api/auth/registro', async (req, res) => {
     try {
         const { nombre, email, password, telefono, direccion } = req.body;
+
         if (!nombre || !email || !password) {
-            return res.status(400).json({ exito: false, mensaje: 'Faltan campos' });
+            return res.status(400).json({ exito: false, mensaje: 'Nombre, email y contraseña son requeridos' });
         }
+
         const existe = await pool.query('SELECT id FROM consultorios WHERE email = $1', [email]);
         if (existe.rows.length > 0) {
             return res.status(400).json({ exito: false, mensaje: 'El email ya está registrado' });
         }
+
+        const bcrypt = require('bcrypt');
         const password_hash = await bcrypt.hash(password, 10);
+
         const result = await pool.query(
             `INSERT INTO consultorios (nombre, email, password_hash, telefono, direccion) 
-             VALUES ($1, $2, $3, $4, $5) RETURNING id, nombre, email`,
+             VALUES ($1, $2, $3, $4, $5) 
+             RETURNING id, nombre, email`,
             [nombre, email, password_hash, telefono, direccion]
         );
-        res.status(201).json({ exito: true, mensaje: 'Registrado', consultorio: result.rows[0] });
+
+        res.status(201).json({ exito: true, mensaje: 'Consultorio registrado correctamente', consultorio: result.rows[0] });
     } catch (error) {
         console.error(error);
         res.status(500).json({ exito: false, mensaje: error.message });
@@ -59,21 +66,41 @@ app.post('/api/auth/registro', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-        const result = await pool.query(`SELECT * FROM consultorios WHERE email = $1`, [email]);
+
+        const result = await pool.query(
+            `SELECT * FROM consultorios WHERE email = $1`,
+            [email]
+        );
+
         if (result.rows.length === 0) {
             return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
         }
+
         const consultorio = result.rows[0];
+        const bcrypt = require('bcrypt');
         const passwordValida = await bcrypt.compare(password, consultorio.password_hash);
+
         if (!passwordValida) {
             return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
         }
+
+        const jwt = require('jsonwebtoken');
         const token = jwt.sign(
             { id: consultorio.id, email: consultorio.email, nombre: consultorio.nombre },
             process.env.JWT_SECRET || 'mediFlow_secreto_2026',
             { expiresIn: '24h' }
         );
-        res.json({ exito: true, token, usuario: { id: consultorio.id, nombre: consultorio.nombre, email: consultorio.email, rol: 'admin' } });
+
+        res.json({
+            exito: true,
+            token,
+            usuario: {
+                id: consultorio.id,
+                nombre: consultorio.nombre,
+                email: consultorio.email,
+                rol: 'admin'
+            }
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ exito: false, mensaje: error.message });
