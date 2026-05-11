@@ -241,11 +241,18 @@ app.post('/api/citas', verificarToken, async (req, res) => {
     try {
         const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
 
-        // Validar que la fecha no sea pasada
         const fechaCita = new Date(fecha_hora);
+        const ahora = new Date();
+
+        // ========== VALIDACIÓN DE HORARIO PASADO ==========
+        if (fechaCita < ahora) {
+            return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
+        }
+        // ==================================================
+
+        // Validar que la fecha no sea anterior a hoy
         const hoy = new Date();
         hoy.setHours(0, 0, 0, 0);
-
         if (fechaCita < hoy) {
             return res.status(400).json({ error: 'No se pueden agendar citas en fechas pasadas' });
         }
