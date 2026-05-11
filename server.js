@@ -260,10 +260,10 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             const citaMinutos = fechaCita.getHours() * 60 + fechaCita.getMinutes();
 
             // Permitir un margen de 5 minutos para evitar problemas de redondeo
-            if (citaMinutos <= ahoraMinutos - 5) {
-                return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
-            }
-        }
+          //  if (citaMinutos <= ahoraMinutos - 5) {
+           //     return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
+          //  }
+      //  }
 
         // Validar que el médico existe
         const medicoExiste = await pool.query(
