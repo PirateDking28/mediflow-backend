@@ -238,32 +238,11 @@ app.get('/api/citas', verificarToken, async (req, res) => {
 });
 
 app.post('/api/citas', verificarToken, async (req, res) => {
-    console.log('🚀 NUEVA VERSIÓN DEL ENDPOINT CITAS ACTIVADA');
     try {
         const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
 
-        const fechaCita = new Date(fecha_hora);
-        const ahora = new Date();
-
-        // Crear fechas para comparar solo la fecha (sin hora)
-        const hoy = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
-        const fechaCitaDate = new Date(fechaCita.getFullYear(), fechaCita.getMonth(), fechaCita.getDate());
-
-        // 1. Validar fecha pasada
-        if (fechaCitaDate < hoy) {
-            return res.status(400).json({ error: 'No se pueden agendar citas en fechas pasadas' });
-        }
-
-        // 2. Si es hoy, validar hora (comparar en minutos desde medianoche)
-        if (fechaCitaDate.getTime() === hoy.getTime()) {
-            const ahoraMinutos = ahora.getHours() * 60 + ahora.getMinutes();
-            const citaMinutos = fechaCita.getHours() * 60 + fechaCita.getMinutes();
-
-            //Permitir un margen de 5 minutos para evitar problemas de redondeo
-           if (citaMinutos <= ahoraMinutos - 5) {
-               return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
-           }
-       }
+        console.log('🚀 NUEVA VERSIÓN DEL ENDPOINT CITAS ACTIVADA');
+        console.log('📝 Datos recibidos:', { paciente_id, medico_id, fecha_hora });
 
         // Validar que el médico existe
         const medicoExiste = await pool.query(
@@ -295,7 +274,7 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'El médico ya tiene una cita en ese horario' });
         }
 
-        // Insertar cita
+        // Insertar cita (SIN VALIDACIÓN DE HORA PASADA)
         const result = await pool.query(
             `INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora, duracion, notas, estado_cita, registrado_por) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
@@ -303,13 +282,13 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             [req.usuario.id, paciente_id, medico_id, fecha_hora, duracion || 30, notas, 'pendiente', req.usuario.id]
         );
 
+        console.log('✅ Cita creada, ID:', result.rows[0].id);
         res.status(201).json({ message: 'Cita creada exitosamente', cita: result.rows[0] });
     } catch (error) {
         console.error('❌ Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
-
 
 // ========== ENDPOINTS DE SERVICIOS ==========
 app.get('/api/servicios', verificarToken, async (req, res) => {
