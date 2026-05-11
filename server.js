@@ -241,53 +241,62 @@ app.post('/api/citas', verificarToken, async (req, res) => {
     try {
         const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
 
-        // ========== VALIDACIÓN DE FECHA/HORA CORREGIDA ==========
-        // Crear fecha a partir de la cadena recibida
-        let fechaCita;
-        if (fecha_hora && fecha_hora.includes('T') && !fecha_hora.includes('Z')) {
-            // Si es "2026-05-11T13:30:00", añadir 'Z' para tratarla como UTC
-            fechaCita = new Date(fecha_hora + 'Z');
-        } else {
-            fechaCita = new Date(fecha_hora);
-        }
+        // ========== LOGS DE DEPURACIÓN ==========
+        console.log('========================================');
+        console.log('📝 DATOS RECIBIDOS:');
+        console.log('fecha_hora:', fecha_hora);
+        console.log('paciente_id:', paciente_id);
+        console.log('medico_id:', medico_id);
+        console.log('duracion:', duracion);
+        console.log('notas:', notas);
 
+        const fechaCita = new Date(fecha_hora);
         const ahora = new Date();
 
-        // Ajustar la comparación para zona horaria local
-        const ahoraLocal = new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60000);
-        const fechaCitaLocal = new Date(fechaCita.getTime() - fechaCita.getTimezoneOffset() * 60000);
+        console.log('fechaCita:', fechaCita.toISOString());
+        console.log('ahora:', ahora.toISOString());
+        console.log('fechaCita.getTime():', fechaCita.getTime());
+        console.log('ahora.getTime():', ahora.getTime());
+        // ======================================
 
-        // Verificar que la fecha/hora no sea pasada
-        if (fechaCitaLocal < ahoraLocal) {
+        // ========== VALIDACIONES ==========
+        // 1. Validar que la hora no sea pasada
+        if (fechaCita.getTime() <= ahora.getTime()) {
+            console.log('❌ Cita rechazada: horario pasado');
             return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
         }
 
-        // Verificar que la fecha no sea anterior a hoy
+        // 2. Validar que la fecha no sea anterior a hoy
         const hoy = new Date();
         hoy.setHours(0, 0, 0, 0);
-        const hoyLocal = new Date(hoy.getTime() - hoy.getTimezoneOffset() * 60000);
-        const fechaCitaDateLocal = new Date(fechaCita.getFullYear(), fechaCita.getMonth(), fechaCita.getDate());
+        const fechaCitaDate = new Date(fechaCita);
+        fechaCitaDate.setHours(0, 0, 0, 0);
 
-        if (fechaCitaDateLocal < hoyLocal) {
+        if (fechaCitaDate < hoy) {
+            console.log('❌ Cita rechazada: fecha pasada');
             return res.status(400).json({ error: 'No se pueden agendar citas en fechas pasadas' });
         }
-        // ======================================================
 
-        // Validar que el médico existe
+        console.log('✅ Validaciones pasadas');
+        // ================================
+
+        // Validar que el médico existe y pertenece al consultorio
         const medicoExiste = await pool.query(
             'SELECT id FROM medicos WHERE id = $1 AND consultorio_id = $2',
             [medico_id, req.usuario.id]
         );
         if (medicoExiste.rows.length === 0) {
+            console.log('❌ Médico no válido');
             return res.status(400).json({ error: 'Médico no válido' });
         }
 
-        // Validar que el paciente existe
+        // Validar que el paciente existe y pertenece al consultorio
         const pacienteExiste = await pool.query(
             'SELECT id FROM pacientes WHERE id = $1 AND consultorio_id = $2',
             [paciente_id, req.usuario.id]
         );
         if (pacienteExiste.rows.length === 0) {
+            console.log('❌ Paciente no válido');
             return res.status(400).json({ error: 'Paciente no válido' });
         }
 
@@ -300,6 +309,7 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             [medico_id, fecha_hora]
         );
         if (conflicto.rows.length > 0) {
+            console.log('❌ Conflicto de horario');
             return res.status(400).json({ error: 'El médico ya tiene una cita en ese horario' });
         }
 
@@ -311,9 +321,12 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             [req.usuario.id, paciente_id, medico_id, fecha_hora, duracion || 30, notas, 'pendiente', req.usuario.id]
         );
 
+        console.log('✅ Cita creada exitosamente, ID:', result.rows[0].id);
+        console.log('========================================');
         res.status(201).json({ message: 'Cita creada exitosamente', cita: result.rows[0] });
     } catch (error) {
         console.error('❌ Error al crear cita:', error);
+        console.log('========================================');
         res.status(500).json({ error: error.message });
     }
 });
