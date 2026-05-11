@@ -240,12 +240,54 @@ app.get('/api/citas', verificarToken, async (req, res) => {
 app.post('/api/citas', verificarToken, async (req, res) => {
     try {
         const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
+
+        // Validar que la fecha no sea pasada
+        const fechaCita = new Date(fecha_hora);
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+
+        if (fechaCita < hoy) {
+            return res.status(400).json({ error: 'No se pueden agendar citas en fechas pasadas' });
+        }
+
+        // Validar que el médico existe
+        const medicoExiste = await pool.query(
+            'SELECT id FROM medicos WHERE id = $1 AND consultorio_id = $2',
+            [medico_id, req.usuario.id]
+        );
+        if (medicoExiste.rows.length === 0) {
+            return res.status(400).json({ error: 'Médico no válido' });
+        }
+
+        // Validar que el paciente existe
+        const pacienteExiste = await pool.query(
+            'SELECT id FROM pacientes WHERE id = $1 AND consultorio_id = $2',
+            [paciente_id, req.usuario.id]
+        );
+        if (pacienteExiste.rows.length === 0) {
+            return res.status(400).json({ error: 'Paciente no válido' });
+        }
+
+        // Verificar que el médico no tenga otra cita a la misma hora
+        const conflicto = await pool.query(
+            `SELECT id FROM citas 
+             WHERE medico_id = $1 
+               AND fecha_hora = $2 
+               AND estado_cita != 'cancelada'`,
+            [medico_id, fecha_hora]
+        );
+        if (conflicto.rows.length > 0) {
+            return res.status(400).json({ error: 'El médico ya tiene una cita en ese horario' });
+        }
+
         const result = await pool.query(
             'INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora, duracion, notas, estado_cita, registrado_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
             [req.usuario.id, paciente_id, medico_id, fecha_hora, duracion, notas, 'pendiente', req.usuario.id]
         );
+
         res.status(201).json({ message: 'Cita creada', cita: result.rows[0] });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -640,7 +682,7 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
         const hoy = new Date();
         hoy.setHours(0, 0, 0, 0);
         const esHoy = fechaSeleccionada.toDateString() === hoy.toDateString();
-        
+
         // Generar horarios base (cada 30 minutos desde 9:00 a 20:00)
         let horariosBase = [];
         for (let hora = 9; hora <= 19; hora++) {
@@ -648,19 +690,22 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
             horariosBase.push(`${hora.toString().padStart(2, '0')}:30`);
         }
         horariosBase.push('20:00');
-        
-        // Si es hoy, ajustar horarios para empezar desde la próxima media hora disponible
+
+        // ========== SECCIÓN MODIFICADA PARA HOY ==========
         if (esHoy) {
             const horaActual = ahora.getHours();
             const minutoActual = ahora.getMinutes();
+
             let horaInicio = horaActual;
-            let minutoInicio = minutoActual < 30 ? 30 : 0;
-            
-            if (minutoActual >= 30) {
+            let minutoInicio = 0;
+
+            if (minutoActual < 30) {
+                minutoInicio = 30;
+            } else {
                 horaInicio = horaActual + 1;
                 minutoInicio = 0;
             }
-            
+
             const horariosFiltrados = [];
             for (const horario of horariosBase) {
                 const [hora, minuto] = horario.split(':').map(Number);
@@ -670,13 +715,14 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
             }
             horariosBase = horariosFiltrados;
         }
-        
+        // ==============================================
+
         // Obtener citas del médico en esa fecha
         const inicioDia = new Date(fechaSeleccionada);
         inicioDia.setHours(0, 0, 0, 0);
         const finDia = new Date(fechaSeleccionada);
         finDia.setHours(23, 59, 59, 999);
-        
+
         const citasOcupadas = await pool.query(
             `SELECT fecha_hora, duracion FROM citas 
              WHERE medico_id = $1 
@@ -685,31 +731,30 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
                AND fecha_hora <= $3`,
             [medico_id, inicioDia, finDia]
         );
-        
+
         // Marcar horarios ocupados
         const horariosOcupados = new Set();
         for (const cita of citasOcupadas.rows) {
             const citaHora = new Date(cita.fecha_hora);
             const duracion = cita.duracion || 30;
             const bloques = duracion / 30;
-            
+
             for (let i = 0; i < bloques; i++) {
                 const horaBloque = new Date(citaHora.getTime() + i * 30 * 60000);
                 const horaStr = `${horaBloque.getHours().toString().padStart(2, '0')}:${horaBloque.getMinutes().toString().padStart(2, '0')}`;
                 horariosOcupados.add(horaStr);
             }
         }
-        
+
         // Filtrar horarios disponibles
         const horariosDisponibles = horariosBase.filter(horario => !horariosOcupados.has(horario));
-        
+
         res.json({ horarios: horariosDisponibles });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Error al obtener horarios disponibles' });
     }
 });
-
 // ========== INICIAR SERVIDOR ==========
 app.listen(PORT, () => {
     console.log(`✅ Servidor corriendo en puerto ${PORT}`);
