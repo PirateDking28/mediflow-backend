@@ -241,18 +241,15 @@ app.post('/api/citas', verificarToken, async (req, res) => {
     try {
         const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
 
-        console.log('========================================');
-        console.log('📝 DATOS RECIBIDOS:');
-        console.log('fecha_hora:', fecha_hora);
-        console.log('paciente_id:', paciente_id);
-        console.log('medico_id:', medico_id);
+        const fechaCita = new Date(fecha_hora);
+        const ahora = new Date();  // ← DECLARAR ahora
 
         // Ajustar a hora local
         const offset = ahora.getTimezoneOffset();
         const ahoraLocal = new Date(ahora.getTime() - (offset * 60000));
         const fechaCitaLocal = new Date(fechaCita.getTime() - (offset * 60000));
 
-        // Comparar fechas
+        // Validar fecha pasada
         const hoyLocal = new Date(ahoraLocal);
         hoyLocal.setHours(0, 0, 0, 0);
         const fechaCitaDateLocal = new Date(fechaCitaLocal);
@@ -272,11 +269,7 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             }
         }
 
-        // ==================================================
-
-        console.log('✅ Validaciones pasadas');
-
-        // Validar que el médico existe
+        // Validar médico
         const medicoExiste = await pool.query(
             'SELECT id FROM medicos WHERE id = $1 AND consultorio_id = $2',
             [medico_id, req.usuario.id]
@@ -285,7 +278,7 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Médico no válido' });
         }
 
-        // Validar que el paciente existe
+        // Validar paciente
         const pacienteExiste = await pool.query(
             'SELECT id FROM pacientes WHERE id = $1 AND consultorio_id = $2',
             [paciente_id, req.usuario.id]
@@ -294,7 +287,7 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Paciente no válido' });
         }
 
-        // Verificar conflicto de horario
+        // Verificar conflicto
         const conflicto = await pool.query(
             `SELECT id FROM citas 
              WHERE medico_id = $1 
@@ -314,8 +307,6 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             [req.usuario.id, paciente_id, medico_id, fecha_hora, duracion || 30, notas, 'pendiente', req.usuario.id]
         );
 
-        console.log('✅ Cita creada, ID:', result.rows[0].id);
-        console.log('========================================');
         res.status(201).json({ message: 'Cita creada exitosamente', cita: result.rows[0] });
     } catch (error) {
         console.error('❌ Error:', error);
