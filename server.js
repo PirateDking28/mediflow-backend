@@ -242,23 +242,7 @@ app.get('/api/citas', verificarToken, async (req, res) => {
              ORDER BY c.fecha_hora ASC`,
             [req.usuario.id]
         );
-
-        // Formatear la fecha/hora para el frontend
-        const citasFormateadas = result.rows.map(cita => {
-            const fecha = new Date(cita.fecha_hora);
-            return {
-                ...cita,
-                fecha_hora_formateada: fecha.toLocaleString('es-MX', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                })
-            };
-        });
-
-        res.json({ citas: citasFormateadas });
+        res.json({ citas: result.rows });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: error.message });
