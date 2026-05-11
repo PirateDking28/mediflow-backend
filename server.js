@@ -584,9 +584,9 @@ app.get('/api/crear-todas-tablas', async (req, res) => {
     }
 });
 
-// ========== ENDPOINT TEMPORAL PARA LIMPIAR BASE DE DATOS ==========
+// ========== ENDPOINT PARA LIMPIAR BASE DE DATOS ==========
 app.get('/api/limpiar-bd', verificarToken, async (req, res) => {
-    // Solo admin puede ejecutar esto (verificar que sea admin)
+    // Solo admin puede ejecutar esto
     if (req.usuario.rol !== 'admin') {
         return res.status(403).json({ error: 'No autorizado' });
     }
@@ -618,7 +618,6 @@ app.get('/api/limpiar-bd', verificarToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
 app.put('/api/pacientes/:id', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
