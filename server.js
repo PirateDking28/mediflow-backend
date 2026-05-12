@@ -11,6 +11,13 @@ const PORT = process.env.PORT || 8080;
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
+app.get('/api/diagnostico', (req, res) => {
+    res.json({ 
+        mensaje: 'Endpoint funciona', 
+        rutas_registradas: app._router.stack.filter(r => r.route).map(r => r.route.path)
+    });
+});
+
 // ========== CONEXIÓN A BASE DE DATOS ==========
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
