@@ -675,6 +675,51 @@ app.post('/api/cobranza/:id/abonar', verificarToken, async (req, res) => {
     }
 });
 
+// ========== EDITAR DEUDA (AGREGAR SERVICIOS) ==========
+app.put('/api/cobranza/:id/editar', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nuevos_servicios } = req.body; // Array de { servicio_id, cantidad, precio_unitario }
+
+        // Verificar que la deuda existe
+        const deuda = await pool.query(
+            `SELECT * FROM cobranza WHERE id = $1 AND consultorio_id = $2`,
+            [id, req.usuario.id]
+        );
+        if (deuda.rows.length === 0) {
+            return res.status(404).json({ error: 'Deuda no encontrada' });
+        }
+
+        let montoAdicional = 0;
+
+        // Insertar los nuevos servicios en cita_servicios
+        for (const servicio of nuevos_servicios) {
+            await pool.query(
+                `INSERT INTO cita_servicios (cita_id, servicio_id, cantidad, precio_unitario) 
+                 VALUES ($1, $2, $3, $4)`,
+                [deuda.rows[0].cita_id, servicio.servicio_id, servicio.cantidad, servicio.precio_unitario]
+            );
+            montoAdicional += servicio.cantidad * servicio.precio_unitario;
+        }
+
+        // Actualizar el monto de la deuda
+        const nuevoMonto = parseFloat(deuda.rows[0].monto) + montoAdicional;
+        await pool.query(
+            `UPDATE cobranza SET monto = $1 WHERE id = $2`,
+            [nuevoMonto, id]
+        );
+
+        res.json({
+            message: 'Servicios agregados exitosamente',
+            nuevo_monto: nuevoMonto,
+            monto_agregado: montoAdicional
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ========== RUTA PRINCIPAL ==========
 app.get('/', (req, res) => {
     res.json({ mensaje: 'Backend funcionando 🚀' });
