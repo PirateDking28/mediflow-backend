@@ -267,12 +267,14 @@ app.get('/api/citas', verificarToken, async (req, res) => {
         const result = await pool.query(
             `SELECT c.*, 
                     p.nombre as paciente_nombre,
-                    u.nombre as medico_nombre
+                    u.nombre as medico_nombre,
+                    TO_CHAR(c.fecha_hora, 'DD/MM/YYYY') as fecha,
+                    TO_CHAR(c.fecha_hora, 'HH24:MI') as hora
              FROM citas c
              JOIN pacientes p ON c.paciente_id = p.id
              JOIN medicos m ON c.medico_id = m.id
              JOIN usuarios u ON m.usuario_id = u.id
-             WHERE c.consultorio_id = $1 AND c.estado_cita != 'cancelada'
+             WHERE c.consultorio_id = $1 AND c.estado_cita = 'pendiente'
              ORDER BY c.fecha_hora ASC`,
             [req.usuario.id]
         );
