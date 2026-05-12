@@ -267,9 +267,7 @@ app.get('/api/citas', verificarToken, async (req, res) => {
         const result = await pool.query(
             `SELECT c.*, 
                     p.nombre as paciente_nombre,
-                    u.nombre as medico_nombre,
-                    TO_CHAR(c.fecha_hora AT TIME ZONE 'UTC' AT TIME ZONE 'America/Tijuana', 'DD/MM/YYYY') as fecha,
-                    TO_CHAR(c.fecha_hora AT TIME ZONE 'UTC' AT TIME ZONE 'America/Tijuana', 'HH24:MI') as hora
+                    u.nombre as medico_nombre
              FROM citas c
              JOIN pacientes p ON c.paciente_id = p.id
              JOIN medicos m ON c.medico_id = m.id
