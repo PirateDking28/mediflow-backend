@@ -301,14 +301,14 @@ app.post('/api/citas', verificarToken, async (req, res) => {
         }
         
         // 2. Validar hora pasada (solo para hoy)
-        if (fechaCitaDate.getTime() === hoy.getTime()) {
-            const ahoraMinutos = ahora.getHours() * 60 + ahora.getMinutes();
-            const citaMinutos = fechaCita.getHours() * 60 + fechaCita.getMinutes();
-            
-            if (citaMinutos < ahoraMinutos) {
-                return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
-            }
-        }
+        //if (fechaCitaDate.getTime() === hoy.getTime()) {
+        //    const ahoraMinutos = ahora.getHours() * 60 + ahora.getMinutes();
+        //    const citaMinutos = fechaCita.getHours() * 60 + fechaCita.getMinutes();
+        //    
+        //    if (citaMinutos < ahoraMinutos) {
+        //        return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
+       //    }
+       // }
         
         // 3. Validar que el médico existe
         const medicoExiste = await pool.query(
