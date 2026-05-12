@@ -286,11 +286,31 @@ app.get('/api/citas', verificarToken, async (req, res) => {
 app.post('/api/citas', verificarToken, async (req, res) => {
     try {
         const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
-
-        console.log('🚀 NUEVA VERSIÓN DEL ENDPOINT CITAS ACTIVADA');
-        console.log('📝 Datos recibidos:', { paciente_id, medico_id, fecha_hora });
-
-        // Validar que el médico existe
+        
+        const fechaCita = new Date(fecha_hora);
+        const ahora = new Date();
+        
+        // 1. Validar fecha pasada
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+        const fechaCitaDate = new Date(fechaCita);
+        fechaCitaDate.setHours(0, 0, 0, 0);
+        
+        if (fechaCitaDate < hoy) {
+            return res.status(400).json({ error: 'No se pueden agendar citas en fechas pasadas' });
+        }
+        
+        // 2. Validar hora pasada (solo para hoy)
+        if (fechaCitaDate.getTime() === hoy.getTime()) {
+            const ahoraMinutos = ahora.getHours() * 60 + ahora.getMinutes();
+            const citaMinutos = fechaCita.getHours() * 60 + fechaCita.getMinutes();
+            
+            if (citaMinutos < ahoraMinutos) {
+                return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
+            }
+        }
+        
+        // 3. Validar que el médico existe
         const medicoExiste = await pool.query(
             'SELECT id FROM medicos WHERE id = $1 AND consultorio_id = $2',
             [medico_id, req.usuario.id]
@@ -298,8 +318,8 @@ app.post('/api/citas', verificarToken, async (req, res) => {
         if (medicoExiste.rows.length === 0) {
             return res.status(400).json({ error: 'Médico no válido' });
         }
-
-        // Validar que el paciente existe
+        
+        // 4. Validar que el paciente existe
         const pacienteExiste = await pool.query(
             'SELECT id FROM pacientes WHERE id = $1 AND consultorio_id = $2',
             [paciente_id, req.usuario.id]
@@ -307,31 +327,91 @@ app.post('/api/citas', verificarToken, async (req, res) => {
         if (pacienteExiste.rows.length === 0) {
             return res.status(400).json({ error: 'Paciente no válido' });
         }
-
-        // Verificar conflicto de horario
-        const conflicto = await pool.query(
+        
+        // 5. Validar que el médico no tenga otra cita a la misma hora
+        const conflictoMedico = await pool.query(
             `SELECT id FROM citas 
              WHERE medico_id = $1 
                AND fecha_hora = $2 
                AND estado_cita != 'cancelada'`,
             [medico_id, fecha_hora]
         );
-        if (conflicto.rows.length > 0) {
+        if (conflictoMedico.rows.length > 0) {
             return res.status(400).json({ error: 'El médico ya tiene una cita en ese horario' });
         }
-
-        // Insertar cita (SIN VALIDACIÓN DE HORA PASADA)
+        
+        // 6. Validar que el paciente no tenga otra cita a la misma hora
+        const conflictoPaciente = await pool.query(
+            `SELECT id FROM citas 
+             WHERE paciente_id = $1 
+               AND fecha_hora = $2 
+               AND estado_cita != 'cancelada'`,
+            [paciente_id, fecha_hora]
+        );
+        if (conflictoPaciente.rows.length > 0) {
+            return res.status(400).json({ error: 'El paciente ya tiene una cita en ese horario' });
+        }
+        
+        // Insertar cita
         const result = await pool.query(
             `INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora, duracion, notas, estado_cita, registrado_por) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
              RETURNING *`,
             [req.usuario.id, paciente_id, medico_id, fecha_hora, duracion || 30, notas, 'pendiente', req.usuario.id]
         );
-
-        console.log('✅ Cita creada, ID:', result.rows[0].id);
+        
         res.status(201).json({ message: 'Cita creada exitosamente', cita: result.rows[0] });
     } catch (error) {
         console.error('❌ Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/citas/:id', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query(
+            `UPDATE citas SET estado_cita = 'cancelada' WHERE id = $1 AND consultorio_id = $2`,
+            [id, req.usuario.id]
+        );
+        res.json({ message: 'Cita cancelada' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/citas/:id/completar', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Calcular total de servicios
+        const servicios = await pool.query(
+            `SELECT SUM(cantidad * precio_unitario) as total FROM cita_servicios WHERE cita_id = $1`,
+            [id]
+        );
+        const total = servicios.rows[0].total || 0;
+
+        // Obtener paciente_id de la cita
+        const cita = await pool.query(
+            `SELECT paciente_id FROM citas WHERE id = $1`,
+            [id]
+        );
+
+        // Crear deuda
+        await pool.query(
+            `INSERT INTO cobranza (consultorio_id, paciente_id, cita_id, monto, concepto, estado, registrado_por) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [req.usuario.id, cita.rows[0].paciente_id, id, total, `Cita #${id}`, 'pendiente', req.usuario.id]
+        );
+
+        // Actualizar estado de la cita
+        await pool.query(
+            `UPDATE citas SET estado_cita = 'completada' WHERE id = $1`,
+            [id]
+        );
+
+        res.json({ message: 'Cita completada y deuda generada' });
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
@@ -426,6 +506,46 @@ app.put('/api/servicios/:id', verificarToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+app.get('/api/citas/:id/servicios', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query(
+            `SELECT cs.*, s.nombre as servicio_nombre 
+             FROM cita_servicios cs
+             JOIN servicios s ON cs.servicio_id = s.id
+             WHERE cs.cita_id = $1`,
+            [id]
+        );
+        res.json({ servicios: result.rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/citas/:id/servicios', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { servicio_id, cantidad } = req.body;
+
+        const servicio = await pool.query('SELECT precio FROM servicios WHERE id = $1', [servicio_id]);
+        if (servicio.rows.length === 0) {
+            return res.status(404).json({ error: 'Servicio no encontrado' });
+        }
+
+        await pool.query(
+            `INSERT INTO cita_servicios (cita_id, servicio_id, cantidad, precio_unitario) 
+             VALUES ($1, $2, $3, $4)`,
+            [id, servicio_id, cantidad || 1, servicio.rows[0].precio]
+        );
+
+        res.status(201).json({ message: 'Servicio agregado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
 
 // ========== ENDPOINTS DE COBRANZA ==========
 app.get('/api/cobranza', verificarToken, async (req, res) => {
