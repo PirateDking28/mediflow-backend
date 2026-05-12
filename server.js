@@ -268,8 +268,8 @@ app.get('/api/citas', verificarToken, async (req, res) => {
             `SELECT c.*, 
                     p.nombre as paciente_nombre,
                     u.nombre as medico_nombre,
-                    TO_CHAR(c.fecha_hora, 'DD/MM/YYYY') as fecha,
-                    TO_CHAR(c.fecha_hora, 'HH24:MI') as hora
+                    TO_CHAR(c.fecha_hora AT TIME ZONE 'UTC' AT TIME ZONE 'America/Tijuana', 'DD/MM/YYYY') as fecha,
+                    TO_CHAR(c.fecha_hora AT TIME ZONE 'UTC' AT TIME ZONE 'America/Tijuana', 'HH24:MI') as hora
              FROM citas c
              JOIN pacientes p ON c.paciente_id = p.id
              JOIN medicos m ON c.medico_id = m.id
@@ -386,7 +386,7 @@ app.delete('/api/citas/:id', verificarToken, async (req, res) => {
 app.put('/api/citas/:id/completar', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         // 1. Verificar que la cita existe
         const cita = await pool.query(
             `SELECT * FROM citas WHERE id = $1 AND consultorio_id = $2`,
@@ -395,7 +395,7 @@ app.put('/api/citas/:id/completar', verificarToken, async (req, res) => {
         if (cita.rows.length === 0) {
             return res.status(404).json({ error: 'Cita no encontrada' });
         }
-        
+
         // 2. Verificar que la cita tenga al menos un servicio
         const servicios = await pool.query(
             `SELECT COUNT(*) as total FROM cita_servicios WHERE cita_id = $1`,
@@ -404,14 +404,14 @@ app.put('/api/citas/:id/completar', verificarToken, async (req, res) => {
         if (parseInt(servicios.rows[0].total) === 0) {
             return res.status(400).json({ error: 'No se puede completar la cita sin servicios' });
         }
-        
+
         // 3. Calcular el total de los servicios
         const totalServicios = await pool.query(
             `SELECT SUM(cantidad * precio_unitario) as total FROM cita_servicios WHERE cita_id = $1`,
             [id]
         );
         const total = parseFloat(totalServicios.rows[0].total) || 0;
-        
+
         // 4. Crear la deuda
         const pacienteId = cita.rows[0].paciente_id;
         const resultado = await pool.query(
@@ -420,14 +420,14 @@ app.put('/api/citas/:id/completar', verificarToken, async (req, res) => {
              RETURNING *`,
             [req.usuario.id, pacienteId, id, total, `Cita del ${new Date().toLocaleDateString()}`, 'pendiente', req.usuario.id]
         );
-        
+
         // 5. Actualizar el estado de la cita
         await pool.query(
             `UPDATE citas SET estado_cita = 'completada' WHERE id = $1`,
             [id]
         );
-        
-        res.json({ 
+
+        res.json({
             message: 'Cita completada y deuda generada exitosamente',
             deuda: resultado.rows[0]
         });
