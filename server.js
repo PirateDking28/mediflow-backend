@@ -380,6 +380,46 @@ app.delete('/api/citas/:id', verificarToken, async (req, res) => {
     }
 });
 
+// ========== ELIMINAR SERVICIO DE CITA ==========
+app.delete('/api/citas/:cita_id/servicios/:servicio_cita_id', verificarToken, async (req, res) => {
+    try {
+        const { cita_id, servicio_cita_id } = req.params;
+
+        // Verificar que la cita existe y pertenece al consultorio
+        const cita = await pool.query(
+            `SELECT id FROM citas WHERE id = $1 AND consultorio_id = $2`,
+            [cita_id, req.usuario.id]
+        );
+        if (cita.rows.length === 0) {
+            return res.status(404).json({ error: 'Cita no encontrada' });
+        }
+
+        // Eliminar el servicio
+        await pool.query(
+            `DELETE FROM cita_servicios WHERE id = $1 AND cita_id = $2`,
+            [servicio_cita_id, cita_id]
+        );
+
+        // Calcular nuevo total de servicios
+        const total = await pool.query(
+            `SELECT SUM(cantidad * precio_unitario) as total FROM cita_servicios WHERE cita_id = $1`,
+            [cita_id]
+        );
+        const nuevoTotal = total.rows[0].total || 0;
+
+        // Actualizar la deuda si existe
+        await pool.query(
+            `UPDATE cobranza SET monto = $1 WHERE cita_id = $2`,
+            [nuevoTotal, cita_id]
+        );
+
+        res.json({ message: 'Servicio eliminado exitosamente', total: nuevoTotal });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ========== COMPLETAR CITA Y GENERAR DEUDA ==========
 app.put('/api/citas/:id/completar', verificarToken, async (req, res) => {
     try {
