@@ -639,10 +639,15 @@ app.get('/api/cobranza/:id', verificarToken, async (req, res) => {
     }
 });
 
+// ========== REGISTRAR ABONO O DESCUENTO ==========
 app.post('/api/cobranza/:id/abonar', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { monto, metodo_pago } = req.body;
+        const { monto, metodo_pago, es_descuento } = req.body;
+
+        if (!monto || monto <= 0) {
+            return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+        }
 
         // Obtener la deuda actual
         const deuda = await pool.query(
@@ -653,24 +658,53 @@ app.post('/api/cobranza/:id/abonar', verificarToken, async (req, res) => {
             return res.status(404).json({ error: 'Deuda no encontrada' });
         }
 
-        const estadoActual = deuda.rows[0];
-        const nuevoPagado = parseFloat(estadoActual.monto_pagado) + parseFloat(monto);
-        const nuevoEstado = nuevoPagado >= parseFloat(estadoActual.monto) ? 'pagado' : 'parcial';
+        const deudaActual = deuda.rows[0];
+        let saldoPendiente = parseFloat(deudaActual.saldo_pendiente);
 
+        // Validar que el monto no sea mayor al saldo pendiente
+        if (parseFloat(monto) > saldoPendiente) {
+            return res.status(400).json({ error: `El monto no puede ser mayor al saldo pendiente ($${saldoPendiente.toFixed(2)})` });
+        }
+
+        let nuevoMonto = parseFloat(deudaActual.monto);
+        let nuevoPagado = parseFloat(deudaActual.monto_pagado);
+
+        if (es_descuento) {
+            // Descuento: reduce el monto total de la deuda
+            nuevoMonto = parseFloat(deudaActual.monto) - parseFloat(monto);
+            // El monto_pagado no cambia
+        } else {
+            // Abono normal: aumenta el monto_pagado
+            nuevoPagado = parseFloat(deudaActual.monto_pagado) + parseFloat(monto);
+        }
+
+        // Calcular nuevo saldo pendiente
+        const nuevoSaldo = nuevoMonto - nuevoPagado;
+        const nuevoEstado = nuevoSaldo <= 0 ? 'pagado' : (nuevoPagado > 0 ? 'parcial' : 'pendiente');
+
+        // Actualizar la deuda
         await pool.query(
-            `UPDATE cobranza SET monto_pagado = $1, estado = $2 WHERE id = $3`,
-            [nuevoPagado, nuevoEstado, id]
+            `UPDATE cobranza 
+             SET monto = $1, monto_pagado = $2, estado = $3 
+             WHERE id = $4`,
+            [nuevoMonto, nuevoPagado, nuevoEstado, id]
         );
 
-        // Registrar el pago
+        // Registrar la transacción (pago o descuento)
+        const tipo = es_descuento ? 'descuento' : (metodo_pago || 'efectivo');
         await pool.query(
             `INSERT INTO pagos (deuda_id, monto, metodo_pago, registrado_por) 
              VALUES ($1, $2, $3, $4)`,
-            [id, monto, metodo_pago || 'efectivo', req.usuario.id]
+            [id, monto, tipo, req.usuario.id]
         );
 
-        res.json({ message: 'Abono registrado exitosamente' });
+        res.json({
+            message: es_descuento ? 'Descuento aplicado exitosamente' : 'Abono registrado exitosamente',
+            nuevo_saldo: nuevoSaldo,
+            nuevo_estado: nuevoEstado
+        });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ error: error.message });
     }
 });
