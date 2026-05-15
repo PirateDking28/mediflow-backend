@@ -1086,6 +1086,108 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
         res.status(500).json({ error: 'Error al obtener horarios disponibles' });
     }
 });
+
+
+
+
+
+// ========== DASHBOARD MÉDICO ==========
+
+// Obtener citas del médico para hoy
+app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
+    try {
+        // Verificar que el usuario sea médico
+        if (req.usuario.rol !== 'medico') {
+            return res.status(403).json({ error: 'Acceso no autorizado' });
+        }
+        
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+        const manana = new Date(hoy);
+        manana.setDate(manana.getDate() + 1);
+        
+        const result = await pool.query(
+            `SELECT c.*, 
+                    p.nombre as paciente_nombre,
+                    p.id as paciente_id,
+                    p.telefono as paciente_telefono,
+                    COALESCE((SELECT COUNT(*) FROM cita_servicios WHERE cita_id = c.id), 0) as tiene_servicios
+             FROM citas c
+             JOIN pacientes p ON c.paciente_id = p.id
+             WHERE c.medico_id = (SELECT id FROM medicos WHERE usuario_id = $1)
+               AND c.estado_cita = 'pendiente'
+               AND c.fecha_hora >= $2 
+               AND c.fecha_hora < $3
+             ORDER BY c.fecha_hora ASC`,
+            [req.usuario.id, hoy, manana]
+        );
+        
+        res.json({ citas: result.rows });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Obtener expediente del paciente (notas médicas)
+app.get('/api/paciente/:id/expediente', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Verificar que el usuario sea médico
+        if (req.usuario.rol !== 'medico') {
+            return res.status(403).json({ error: 'Acceso no autorizado' });
+        }
+        
+        const result = await pool.query(
+            `SELECT e.*, u.nombre as medico_nombre
+             FROM expedientes e
+             JOIN usuarios u ON e.medico_id = u.id
+             WHERE e.paciente_id = $1
+             ORDER BY e.fecha DESC`,
+            [id]
+        );
+        
+        res.json({ expediente: result.rows });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Marcar cita como atendida
+app.put('/api/citas/:id/atender', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Verificar que el usuario sea médico
+        if (req.usuario.rol !== 'medico') {
+            return res.status(403).json({ error: 'Acceso no autorizado' });
+        }
+        
+        // Verificar que la cita tenga servicios
+        const servicios = await pool.query(
+            `SELECT COUNT(*) as total FROM cita_servicios WHERE cita_id = $1`,
+            [id]
+        );
+        
+        if (parseInt(servicios.rows[0].total) === 0) {
+            return res.status(400).json({ error: 'No se puede marcar como atendida sin servicios' });
+        }
+        
+        await pool.query(
+            `UPDATE citas SET estado_cita = 'atendida' WHERE id = $1`,
+            [id]
+        );
+        
+        res.json({ message: 'Cita marcada como atendida' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
 // ========== INICIAR SERVIDOR ==========
 app.listen(PORT, () => {
     console.log(`✅ Servidor corriendo en puerto ${PORT}`);
