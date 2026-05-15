@@ -1100,12 +1100,12 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
         if (req.usuario.rol !== 'medico') {
             return res.status(403).json({ error: 'Acceso no autorizado' });
         }
-        
+
         const hoy = new Date();
         hoy.setHours(0, 0, 0, 0);
         const manana = new Date(hoy);
         manana.setDate(manana.getDate() + 1);
-        
+
         const result = await pool.query(
             `SELECT c.*, 
                     p.nombre as paciente_nombre,
@@ -1121,7 +1121,7 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
              ORDER BY c.fecha_hora ASC`,
             [req.usuario.id, hoy, manana]
         );
-        
+
         res.json({ citas: result.rows });
     } catch (error) {
         console.error(error);
@@ -1133,12 +1133,12 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
 app.get('/api/paciente/:id/expediente', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         // Verificar que el usuario sea médico
         if (req.usuario.rol !== 'medico') {
             return res.status(403).json({ error: 'Acceso no autorizado' });
         }
-        
+
         const result = await pool.query(
             `SELECT e.*, u.nombre as medico_nombre
              FROM expedientes e
@@ -1147,7 +1147,7 @@ app.get('/api/paciente/:id/expediente', verificarToken, async (req, res) => {
              ORDER BY e.fecha DESC`,
             [id]
         );
-        
+
         res.json({ expediente: result.rows });
     } catch (error) {
         console.error(error);
@@ -1159,28 +1159,52 @@ app.get('/api/paciente/:id/expediente', verificarToken, async (req, res) => {
 app.put('/api/citas/:id/atender', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         // Verificar que el usuario sea médico
         if (req.usuario.rol !== 'medico') {
             return res.status(403).json({ error: 'Acceso no autorizado' });
         }
-        
+
         // Verificar que la cita tenga servicios
         const servicios = await pool.query(
             `SELECT COUNT(*) as total FROM cita_servicios WHERE cita_id = $1`,
             [id]
         );
-        
+
         if (parseInt(servicios.rows[0].total) === 0) {
             return res.status(400).json({ error: 'No se puede marcar como atendida sin servicios' });
         }
-        
+
         await pool.query(
             `UPDATE citas SET estado_cita = 'atendida' WHERE id = $1`,
             [id]
         );
-        
+
         res.json({ message: 'Cita marcada como atendida' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/paciente/:id/nota', verificarToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nota, cita_id } = req.body;
+
+        // Verificar que el usuario sea médico
+        if (req.usuario.rol !== 'medico') {
+            return res.status(403).json({ error: 'Acceso no autorizado' });
+        }
+
+        const result = await pool.query(
+            `INSERT INTO expedientes (consultorio_id, paciente_id, medico_id, cita_id, contenido, tipo) 
+             VALUES ($1, $2, $3, $4, $5, 'nota')
+             RETURNING *`,
+            [req.usuario.consultorioId, id, req.usuario.id, cita_id, nota]
+        );
+
+        res.status(201).json({ message: 'Nota guardada', nota: result.rows[0] });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: error.message });
