@@ -74,42 +74,71 @@ app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        const result = await pool.query(
-            `SELECT * FROM consultorios WHERE email = $1`,
-            [email]
-        );
+        // 1. Buscar primero en consultorios (para usuarios admin)
+        let usuario = await pool.query('SELECT * FROM consultorios WHERE email = $1', [email]);
+        let esConsultorio = true;
+        let usuarioData = usuario.rows[0];
 
-        if (result.rows.length === 0) {
+        // 2. Si no es consultorio, buscar en usuarios (para médicos y secretarias)
+        if (!usuarioData) {
+            const userResult = await pool.query(`
+                SELECT u.*, c.nombre as consultorio_nombre 
+                FROM usuarios u
+                JOIN consultorios c ON u.consultorio_id = c.id
+                WHERE u.email = $1
+            `, [email]);
+            usuarioData = userResult.rows[0];
+            esConsultorio = false;
+        }
+
+        // 3. Si no se encuentra en ninguna tabla
+        if (!usuarioData) {
             return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
         }
 
-        const consultorio = result.rows[0];
-        const bcrypt = require('bcrypt');
-        const passwordValida = await bcrypt.compare(password, consultorio.password_hash);
-
+        // 4. Verificar contraseña
+        const passwordValida = await bcrypt.compare(password, usuarioData.password_hash);
         if (!passwordValida) {
             return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
         }
 
-        const jwt = require('jsonwebtoken');
-        const token = jwt.sign(
-            { id: consultorio.id, email: consultorio.email, nombre: consultorio.nombre },
-            process.env.JWT_SECRET || 'mediFlow_secreto_2026',
-            { expiresIn: '24h' }
-        );
+        // 5. Crear token JWT
+        let payload;
+        if (esConsultorio) {
+            payload = {
+                id: usuarioData.id,
+                email: usuarioData.email,
+                nombre: usuarioData.nombre,
+                rol: 'admin',
+                consultorioId: usuarioData.id
+            };
+        } else {
+            payload = {
+                id: usuarioData.id,
+                email: usuarioData.email,
+                nombre: usuarioData.nombre,
+                rol: usuarioData.rol,
+                consultorioId: usuarioData.consultorio_id
+            };
+        }
 
+        const token = jwt.sign(payload, process.env.JWT_SECRET || 'mediFlow_secreto_2026', { expiresIn: '24h' });
+
+        // 6. Respuesta exitosa
         res.json({
             exito: true,
             token,
             usuario: {
-                id: consultorio.id,
-                nombre: consultorio.nombre,
-                email: consultorio.email,
-                rol: 'admin'
+                id: payload.id,
+                nombre: payload.nombre,
+                email: payload.email,
+                rol: payload.rol,
+                consultorio: esConsultorio ? usuarioData.nombre : usuarioData.consultorio_nombre
             }
         });
+
     } catch (error) {
-        console.error(error);
+        console.error('❌ Error en login:', error);
         res.status(500).json({ exito: false, mensaje: error.message });
     }
 });
