@@ -1132,11 +1132,19 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
             return res.status(403).json({ error: 'Acceso no autorizado' });
         }
 
-        // Calcular inicio y fin del día actual (hora local del servidor)
-        const hoy = new Date();
-        hoy.setHours(0, 0, 0, 0);
-        const manana = new Date(hoy);
-        manana.setDate(manana.getDate() + 1);
+        // Calcular inicio y fin del día actual en zona horaria local
+        const ahora = new Date();
+        const zona = 'America/Tijuana';
+
+        // Crear fecha inicio del día en la zona horaria local
+        const hoyLocal = new Date(ahora.toLocaleString('en-US', { timeZone: zona }));
+        hoyLocal.setHours(0, 0, 0, 0);
+        const mananaLocal = new Date(hoyLocal);
+        mananaLocal.setDate(mananaLocal.getDate() + 1);
+
+        // Convertir a UTC para la consulta
+        const hoyUTC = new Date(hoyLocal.toISOString());
+        const mananaUTC = new Date(mananaLocal.toISOString());
 
         // Obtener el ID del médico asociado al usuario
         const medicoResult = await pool.query(
@@ -1155,7 +1163,6 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
                     p.nombre as paciente_nombre,
                     p.id as paciente_id,
                     p.telefono as paciente_telefono,
-                    TO_CHAR(c.fecha_hora AT TIME ZONE 'UTC' AT TIME ZONE 'America/Tijuana', 'HH24:MI') as hora_formateada,
                     COALESCE((SELECT COUNT(*) FROM cita_servicios WHERE cita_id = c.id), 0) as tiene_servicios
              FROM citas c
              JOIN pacientes p ON c.paciente_id = p.id
@@ -1164,20 +1171,29 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
                AND c.fecha_hora >= $2 
                AND c.fecha_hora < $3
              ORDER BY c.fecha_hora ASC`,
-            [medicoId, hoy, manana]
+            [medicoId, hoyUTC, mananaUTC]
         );
 
-        // Formatear la respuesta
-        const citasFormateadas = result.rows.map(cita => ({
-            id: cita.id,
-            paciente_id: cita.paciente_id,
-            paciente_nombre: cita.paciente_nombre,
-            paciente_telefono: cita.paciente_telefono,
-            fecha_hora: cita.fecha_hora,
-            hora: cita.hora_formateada,
-            duracion: cita.duracion,
-            tiene_servicios: parseInt(cita.tiene_servicios) > 0
-        }));
+        // Formatear la respuesta con la hora en zona local
+        const citasFormateadas = result.rows.map(cita => {
+            const fechaCita = new Date(cita.fecha_hora);
+            const horaLocal = fechaCita.toLocaleTimeString('es-MX', {
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZone: zona
+            });
+
+            return {
+                id: cita.id,
+                paciente_id: cita.paciente_id,
+                paciente_nombre: cita.paciente_nombre,
+                paciente_telefono: cita.paciente_telefono,
+                fecha_hora: cita.fecha_hora,
+                hora: horaLocal,
+                duracion: cita.duracion,
+                tiene_servicios: parseInt(cita.tiene_servicios) > 0
+            };
+        });
 
         res.json({ citas: citasFormateadas });
     } catch (error) {
@@ -1186,7 +1202,7 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
     }
 });
 
-// Obtener expediente del paciente (notas médicas)
+// Obtener expediente del paciente
 app.get('/api/paciente/:id/expediente', verificarToken, async (req, res) => {
     try {
         const { id } = req.params;
@@ -1197,7 +1213,7 @@ app.get('/api/paciente/:id/expediente', verificarToken, async (req, res) => {
         }
 
         const result = await pool.query(
-            `SELECT e.*, u.nombre as medico_nombre, e.contenido as nota
+            `SELECT e.*, u.nombre as medico_nombre
              FROM expedientes e
              LEFT JOIN usuarios u ON e.medico_id = u.id
              WHERE e.paciente_id = $1
@@ -1205,13 +1221,12 @@ app.get('/api/paciente/:id/expediente', verificarToken, async (req, res) => {
             [id]
         );
 
-        // Formatear la respuesta
         const expedienteFormateado = result.rows.map(nota => ({
             id: nota.id,
             fecha: nota.fecha,
-            medico_nombre: nota.medico_nombre || 'Desconocido',
+            medico_nombre: nota.medico_nombre || 'Sistema',
             contenido: nota.contenido,
-            tipo: nota.tipo
+            tipo: nota.tipo || 'nota'
         }));
 
         res.json({ expediente: expedienteFormateado });
