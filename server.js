@@ -1122,6 +1122,8 @@ app.get('/api/citas/disponible/:medico_id/:fecha', verificarToken, async (req, r
 
 // ========== DASHBOARD MÉDICO ==========
 
+// ========== DASHBOARD MÉDICO ==========
+
 // Obtener citas del médico para hoy
 app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
     try {
@@ -1130,30 +1132,56 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
             return res.status(403).json({ error: 'Acceso no autorizado' });
         }
 
+        // Calcular inicio y fin del día actual (hora local del servidor)
         const hoy = new Date();
         hoy.setHours(0, 0, 0, 0);
         const manana = new Date(hoy);
         manana.setDate(manana.getDate() + 1);
+
+        // Obtener el ID del médico asociado al usuario
+        const medicoResult = await pool.query(
+            `SELECT id FROM medicos WHERE usuario_id = $1`,
+            [req.usuario.id]
+        );
+
+        if (medicoResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Médico no encontrado' });
+        }
+
+        const medicoId = medicoResult.rows[0].id;
 
         const result = await pool.query(
             `SELECT c.*, 
                     p.nombre as paciente_nombre,
                     p.id as paciente_id,
                     p.telefono as paciente_telefono,
+                    TO_CHAR(c.fecha_hora AT TIME ZONE 'UTC' AT TIME ZONE 'America/Tijuana', 'HH24:MI') as hora_formateada,
                     COALESCE((SELECT COUNT(*) FROM cita_servicios WHERE cita_id = c.id), 0) as tiene_servicios
              FROM citas c
              JOIN pacientes p ON c.paciente_id = p.id
-             WHERE c.medico_id = (SELECT id FROM medicos WHERE usuario_id = $1)
+             WHERE c.medico_id = $1
                AND c.estado_cita = 'pendiente'
                AND c.fecha_hora >= $2 
                AND c.fecha_hora < $3
              ORDER BY c.fecha_hora ASC`,
-            [req.usuario.id, hoy, manana]
+            [medicoId, hoy, manana]
         );
 
-        res.json({ citas: result.rows });
+        // Formatear la respuesta
+        const citasFormateadas = result.rows.map(cita => ({
+            id: cita.id,
+            paciente_id: cita.paciente_id,
+            paciente_nombre: cita.paciente_nombre,
+            paciente_telefono: cita.paciente_telefono,
+            fecha_hora: cita.fecha_hora,
+            hora: cita.hora_formateada,
+            duracion: cita.duracion,
+            tiene_servicios: parseInt(cita.tiene_servicios) > 0
+        }));
+
+        res.json({ citas: citasFormateadas });
     } catch (error) {
-        console.error(error);
+        console.error('Error en /api/medico/citas/hoy:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1169,17 +1197,26 @@ app.get('/api/paciente/:id/expediente', verificarToken, async (req, res) => {
         }
 
         const result = await pool.query(
-            `SELECT e.*, u.nombre as medico_nombre
+            `SELECT e.*, u.nombre as medico_nombre, e.contenido as nota
              FROM expedientes e
-             JOIN usuarios u ON e.medico_id = u.id
+             LEFT JOIN usuarios u ON e.medico_id = u.id
              WHERE e.paciente_id = $1
-             ORDER BY e.fecha DESC`,
+             ORDER BY e.fecha DESC, e.created_at DESC`,
             [id]
         );
 
-        res.json({ expediente: result.rows });
+        // Formatear la respuesta
+        const expedienteFormateado = result.rows.map(nota => ({
+            id: nota.id,
+            fecha: nota.fecha,
+            medico_nombre: nota.medico_nombre || 'Desconocido',
+            contenido: nota.contenido,
+            tipo: nota.tipo
+        }));
+
+        res.json({ expediente: expedienteFormateado });
     } catch (error) {
-        console.error(error);
+        console.error('Error en expediente:', error);
         res.status(500).json({ error: error.message });
     }
 });
