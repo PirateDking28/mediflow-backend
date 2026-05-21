@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: mediflow-backend
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: DATABASE_URL
+        value: "postgresql://..."
+      - key: JWT_SECRET
+        value: "mediFlow_secreto_2026_produccion"
+      - key: NODE_ENV
+        value: production
