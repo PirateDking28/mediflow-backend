@@ -346,7 +346,8 @@ app.get('/api/citas', verificarToken, async (req, res) => {
         const result = await pool.query(
             `SELECT c.*, 
                     p.nombre as paciente_nombre,
-                    u.nombre as medico_nombre
+                    u.nombre as medico_nombre,
+                    c.fecha_hora AT TIME ZONE 'UTC' AT TIME ZONE 'America/Tijuana' as fecha_hora_local
              FROM citas c
              JOIN pacientes p ON c.paciente_id = p.id
              JOIN medicos m ON c.medico_id = m.id
@@ -355,7 +356,14 @@ app.get('/api/citas', verificarToken, async (req, res) => {
              ORDER BY c.fecha_hora ASC`,
             [req.usuario.id]
         );
-        res.json({ citas: result.rows });
+
+        // Reemplazar fecha_hora con la versión local
+        const citasFormateadas = result.rows.map(cita => ({
+            ...cita,
+            fecha_hora: cita.fecha_hora_local
+        }));
+
+        res.json({ citas: citasFormateadas });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: error.message });
