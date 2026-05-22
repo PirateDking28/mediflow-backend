@@ -280,12 +280,62 @@ app.get('/api/pacientes', verificarToken, async (req, res) => {
 app.post('/api/pacientes', verificarToken, async (req, res) => {
     try {
         const { nombre, email, telefono, fecha_nacimiento, direccion } = req.body;
+        
+        if (!nombre) {
+            return res.status(400).json({ error: 'El nombre es requerido' });
+        }
+        
+        // ========== VALIDACIONES DE DUPLICADOS ==========
+        // 1. Verificar si ya existe un paciente con el mismo email
+        if (email) {
+            const emailExistente = await pool.query(
+                `SELECT id FROM pacientes WHERE email = $1 AND consultorio_id = $2`,
+                [email, req.usuario.id]
+            );
+            if (emailExistente.rows.length > 0) {
+                return res.status(400).json({ error: 'Ya existe un paciente con este email' });
+            }
+        }
+        
+        // 2. Verificar si ya existe un paciente con el mismo nombre y email
+        const duplicado = await pool.query(
+            `SELECT id FROM pacientes 
+             WHERE nombre = $1 AND email = $2 AND consultorio_id = $3`,
+            [nombre, email || null, req.usuario.id]
+        );
+        if (duplicado.rows.length > 0) {
+            return res.status(400).json({ error: 'Ya existe un paciente con este nombre y email' });
+        }
+        // ==================================================
+        
+        // Validar teléfono
+        if (telefono) {
+            const telefonoRegex = /^[0-9]{8,15}$/;
+            if (!telefonoRegex.test(telefono)) {
+                return res.status(400).json({ error: 'El teléfono debe contener solo números (8-15 dígitos)' });
+            }
+        }
+        
+        // Validar fecha de nacimiento (no futura)
+        if (fecha_nacimiento) {
+            const fechaNac = new Date(fecha_nacimiento);
+            const hoy = new Date();
+            hoy.setHours(0, 0, 0, 0);
+            if (fechaNac > hoy) {
+                return res.status(400).json({ error: 'La fecha de nacimiento no puede ser futura' });
+            }
+        }
+        
         const result = await pool.query(
-            'INSERT INTO pacientes (consultorio_id, nombre, email, telefono, fecha_nacimiento, direccion, activo) VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING *',
+            `INSERT INTO pacientes (consultorio_id, nombre, email, telefono, fecha_nacimiento, direccion, activo) 
+             VALUES ($1, $2, $3, $4, $5, $6, true) 
+             RETURNING *`,
             [req.usuario.id, nombre, email, telefono, fecha_nacimiento, direccion]
         );
-        res.status(201).json({ message: 'Paciente creado', paciente: result.rows[0] });
+        
+        res.status(201).json({ message: 'Paciente creado exitosamente', paciente: result.rows[0] });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ error: error.message });
     }
 });
