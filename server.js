@@ -369,7 +369,6 @@ app.get('/api/citas', verificarToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
 app.post('/api/citas', verificarToken, async (req, res) => {
     try {
         const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
@@ -1230,6 +1229,8 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+
 // Obtener expediente del paciente
 app.get('/api/paciente/:id/expediente', verificarToken, async (req, res) => {
     try {
