@@ -280,11 +280,11 @@ app.get('/api/pacientes', verificarToken, async (req, res) => {
 app.post('/api/pacientes', verificarToken, async (req, res) => {
     try {
         const { nombre, email, telefono, fecha_nacimiento, direccion } = req.body;
-        
+
         if (!nombre) {
             return res.status(400).json({ error: 'El nombre es requerido' });
         }
-        
+
         // ========== VALIDACIONES DE DUPLICADOS ==========
         // 1. Verificar si ya existe un paciente con el mismo email
         if (email) {
@@ -296,7 +296,7 @@ app.post('/api/pacientes', verificarToken, async (req, res) => {
                 return res.status(400).json({ error: 'Ya existe un paciente con este email' });
             }
         }
-        
+
         // 2. Verificar si ya existe un paciente con el mismo nombre y email
         const duplicado = await pool.query(
             `SELECT id FROM pacientes 
@@ -307,7 +307,7 @@ app.post('/api/pacientes', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Ya existe un paciente con este nombre y email' });
         }
         // ==================================================
-        
+
         // Validar teléfono
         if (telefono) {
             const telefonoRegex = /^[0-9]{8,15}$/;
@@ -315,7 +315,7 @@ app.post('/api/pacientes', verificarToken, async (req, res) => {
                 return res.status(400).json({ error: 'El teléfono debe contener solo números (8-15 dígitos)' });
             }
         }
-        
+
         // Validar fecha de nacimiento (no futura)
         if (fecha_nacimiento) {
             const fechaNac = new Date(fecha_nacimiento);
@@ -325,14 +325,14 @@ app.post('/api/pacientes', verificarToken, async (req, res) => {
                 return res.status(400).json({ error: 'La fecha de nacimiento no puede ser futura' });
             }
         }
-        
+
         const result = await pool.query(
             `INSERT INTO pacientes (consultorio_id, nombre, email, telefono, fecha_nacimiento, direccion, activo) 
              VALUES ($1, $2, $3, $4, $5, $6, true) 
              RETURNING *`,
             [req.usuario.id, nombre, email, telefono, fecha_nacimiento, direccion]
         );
-        
+
         res.status(201).json({ message: 'Paciente creado exitosamente', paciente: result.rows[0] });
     } catch (error) {
         console.error(error);
@@ -714,11 +714,13 @@ app.get('/api/cobranza/activas', verificarToken, async (req, res) => {
             `SELECT c.*, p.nombre as paciente_nombre 
              FROM cobranza c
              JOIN pacientes p ON c.paciente_id = p.id
-             WHERE c.consultorio_id = $1 AND c.estado != 'pagado'`,
+             WHERE c.consultorio_id = $1 AND c.estado != 'pagado'
+             ORDER BY c.fecha DESC`,
             [req.usuario.id]
         );
         res.json({ deudas: result.rows });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -726,15 +728,18 @@ app.get('/api/cobranza/activas', verificarToken, async (req, res) => {
 app.get('/api/cobranza/historial', verificarToken, async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT * FROM cobranza 
-             WHERE consultorio_id = $1 
-               AND estado = $2 
-               AND fecha >= CURRENT_DATE - INTERVAL '7 days'`,
-            [req.usuario.id, 'pagado']
+            `SELECT c.*, p.nombre as paciente_nombre 
+             FROM cobranza c
+             JOIN pacientes p ON c.paciente_id = p.id
+             WHERE c.consultorio_id = $1 
+               AND c.estado = 'pagado'
+               AND c.fecha >= CURRENT_DATE - INTERVAL '7 days'
+             ORDER BY c.fecha DESC`,
+            [req.usuario.id]
         );
         res.json({ historial: result.rows });
     } catch (error) {
-        console.error('Error en historial:', error);
+        console.error(error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1179,19 +1184,19 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
         if (req.usuario.rol !== 'medico') {
             return res.status(403).json({ error: 'Acceso no autorizado' });
         }
-        
+
         // Obtener el ID del médico asociado al usuario
         const medicoResult = await pool.query(
             `SELECT id FROM medicos WHERE usuario_id = $1`,
             [req.usuario.id]
         );
-        
+
         if (medicoResult.rows.length === 0) {
             return res.status(404).json({ error: 'Médico no encontrado' });
         }
-        
+
         const medicoId = medicoResult.rows[0].id;
-        
+
         // Consulta que devuelve la hora como texto directamente desde la BD
         const result = await pool.query(
             `SELECT c.id, 
@@ -1210,7 +1215,7 @@ app.get('/api/medico/citas/hoy', verificarToken, async (req, res) => {
              ORDER BY c.fecha_hora ASC`,
             [medicoId]
         );
-        
+
         res.json({ citas: result.rows });
     } catch (error) {
         console.error('Error en /api/medico/citas/hoy:', error);
