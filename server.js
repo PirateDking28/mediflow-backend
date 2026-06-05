@@ -92,12 +92,14 @@ app.post('/api/auth/registro', async (req, res) => {
         // Enviar email de verificación
         const urlVerificacion = `${process.env.FRONTEND_URL || 'https://mediflow-frontend-tau.vercel.app'}/verificar/${tokenVerificacion}`;
 
-        await resend.emails.send({
-            from: EMAIL_FROM,
-            to: email,
-            subject: 'Verifica tu cuenta - MediFlow Pro',
-            html: `<h1>Bienvenido a MediFlow Pro</h1><p>Hola ${nombre},</p><p>Gracias por registrarte. Por favor verifica tu cuenta haciendo clic en el siguiente enlace:</p><a href="${urlVerificacion}">${urlVerificacion}</a><p>Este enlace expirará en 24 horas.</p><p>Saludos,<br>El equipo de MediFlow</p>`
-        });
+        // await resend.emails.send({
+        //     from: EMAIL_FROM,
+        //     to: email,
+        //     subject: 'Verifica tu cuenta - MediFlow Pro',
+        //     html: `<h1>Bienvenido a MediFlow Pro</h1><p>Hola ${nombre},</p><p>Gracias por registrarte. Por favor verifica tu cuenta haciendo clic en el siguiente enlace:</p><a href="${urlVerificacion}">${urlVerificacion}</a><p>Este enlace expirará en 24 horas.</p><p>Saludos,<br>El equipo de MediFlow</p>`
+        // });
+        console.log('Email de verificación enviado a:', email);
+        console.log('Token:', tokenVerificacion);
 
         res.status(201).json({
             exito: true,
