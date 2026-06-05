@@ -347,54 +347,45 @@ app.get('/api/citas', verificarToken, async (req, res) => {
             `SELECT c.*, 
                     p.nombre as paciente_nombre,
                     u.nombre as medico_nombre,
-                    c.fecha_hora AT TIME ZONE 'UTC' AT TIME ZONE 'America/Tijuana' as fecha_hora_local
+                    c.fecha_hora_local as fecha_hora
              FROM citas c
              JOIN pacientes p ON c.paciente_id = p.id
              JOIN medicos m ON c.medico_id = m.id
              JOIN usuarios u ON m.usuario_id = u.id
              WHERE c.consultorio_id = $1 AND c.estado_cita = 'pendiente'
-             ORDER BY c.fecha_hora ASC`,
+             ORDER BY c.fecha_hora_local ASC`,
             [req.usuario.id]
         );
-
-        // Reemplazar fecha_hora con la versión local
-        const citasFormateadas = result.rows.map(cita => ({
-            ...cita,
-            fecha_hora: cita.fecha_hora_local
-        }));
-
-        res.json({ citas: citasFormateadas });
+        res.json({ citas: result.rows });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: error.message });
     }
 });
+
 app.post('/api/citas', verificarToken, async (req, res) => {
     try {
-        // Recibir fecha y hora por separado
         const { paciente_id, medico_id, fecha, hora, duracion, notas } = req.body;
 
-        // Validar que los campos requeridos estén presentes
         if (!paciente_id || !medico_id || !fecha || !hora) {
-            return res.status(400).json({ error: 'Faltan campos requeridos (paciente, médico, fecha, hora)' });
+            return res.status(400).json({ error: 'Faltan campos requeridos' });
         }
 
-        // Crear fecha en zona horaria local a partir de fecha y hora
-        const fechaHoraStr = `${fecha}T${hora}:00`;
-        const fechaLocal = new Date(fechaHoraStr);
+        // Crear string de fecha/hora local (sin zona horaria)
+        const fechaHoraLocal = `${fecha} ${hora}:00`;
 
-        // Validar que la fecha no sea pasada (en hora local)
+        // Validar que la fecha/hora no sea pasada
         const ahora = new Date();
-        if (fechaLocal < ahora) {
+        const [fechaParte, horaParte] = fechaHoraLocal.split(' ');
+        const [anio, mes, dia] = fechaParte.split('-');
+        const [horaCita, minutoCita] = horaParte.split(':');
+        const fechaCitaLocal = new Date(anio, mes - 1, dia, horaCita, minutoCita);
+
+        if (fechaCitaLocal < ahora) {
             return res.status(400).json({ error: 'No se pueden agendar citas en horarios pasados' });
         }
 
-        // Calcular UTC para guardar en la base de datos
-        const offset = fechaLocal.getTimezoneOffset();
-        const fechaUTC = new Date(fechaLocal.getTime() - offset * 60000);
-        const fechaHoraUTC = fechaUTC.toISOString();
-
-        // Validar que el médico existe
+        // Validaciones de médico y paciente...
         const medicoExiste = await pool.query(
             'SELECT id FROM medicos WHERE id = $1 AND consultorio_id = $2',
             [medico_id, req.usuario.id]
@@ -403,7 +394,6 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Médico no válido' });
         }
 
-        // Validar que el paciente existe
         const pacienteExiste = await pool.query(
             'SELECT id FROM pacientes WHERE id = $1 AND consultorio_id = $2',
             [paciente_id, req.usuario.id]
@@ -412,12 +402,12 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Paciente no válido' });
         }
 
-        // Insertar la cita
+        // Insertar la cita (guardar la fecha/hora local como texto)
         const result = await pool.query(
-            `INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora, duracion, notas, estado_cita, registrado_por) 
+            `INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora_local, duracion, notas, estado_cita, registrado_por) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
              RETURNING *`,
-            [req.usuario.id, paciente_id, medico_id, fechaHoraUTC, duracion || 30, notas, 'pendiente', req.usuario.id]
+            [req.usuario.id, paciente_id, medico_id, fechaHoraLocal, duracion || 30, notas, 'pendiente', req.usuario.id]
         );
 
         res.status(201).json({ message: 'Cita creada exitosamente', cita: result.rows[0] });
