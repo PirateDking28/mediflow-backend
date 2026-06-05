@@ -1438,42 +1438,42 @@ app.post('/api/auth/restablecer/:token', async (req, res) => {
     }
 });
 
-// app.get('/api/migrar-confirmacion', verificarToken, async (req, res) => {
-//     try {
-//         // Solo admin puede ejecutar esto
-//         if (req.usuario.rol !== 'admin') {
-//             return res.status(403).json({ error: 'No autorizado' });
-//         }
+app.get('/api/migrar-confirmacion', verificarToken, async (req, res) => {
+    try {
+        // Solo admin puede ejecutar esto
+        if (req.usuario.rol !== 'admin') {
+            return res.status(403).json({ error: 'No autorizado' });
+        }
 
-//         // Agregar columnas a usuarios
-//         await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email_verificado BOOLEAN DEFAULT FALSE`);
-//         await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_verificacion VARCHAR(255)`);
-//         await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_recuperacion VARCHAR(255)`);
-//         await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_recuperacion_expira TIMESTAMP`);
+        // Agregar columnas a usuarios
+        await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email_verificado BOOLEAN DEFAULT FALSE`);
+        await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_verificacion VARCHAR(255)`);
+        await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_recuperacion VARCHAR(255)`);
+        await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_recuperacion_expira TIMESTAMP`);
 
-//         // Crear tabla de dominios permitidos
-//         await pool.query(`
-//             CREATE TABLE IF NOT EXISTS dominios_permitidos (
-//                 id SERIAL PRIMARY KEY,
-//                 dominio VARCHAR(100) UNIQUE NOT NULL,
-//                 activo BOOLEAN DEFAULT TRUE,
-//                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-//             )
-//         `);
+        // Crear tabla de dominios permitidos
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS dominios_permitidos (
+                id SERIAL PRIMARY KEY,
+                dominio VARCHAR(100) UNIQUE NOT NULL,
+                activo BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
 
-//         // Insertar dominios básicos
-//         await pool.query(`
-//             INSERT INTO dominios_permitidos (dominio) VALUES 
-//             ('gmail.com'), ('hotmail.com'), ('outlook.com'), ('yahoo.com')
-//             ON CONFLICT (dominio) DO NOTHING
-//         `);
+        // Insertar dominios básicos
+        await pool.query(`
+            INSERT INTO dominios_permitidos (dominio) VALUES 
+            ('gmail.com'), ('hotmail.com'), ('outlook.com'), ('yahoo.com')
+            ON CONFLICT (dominio) DO NOTHING
+        `);
 
-//         res.json({ mensaje: 'Migración completada exitosamente' });
-//     } catch (error) {
-//         console.error(error);
-//         res.status(500).json({ error: error.message });
-//     }
-// });
+        res.json({ mensaje: 'Migración completada exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // ========== INICIAR SERVIDOR ==========
 app.listen(PORT, () => {
