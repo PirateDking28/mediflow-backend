@@ -48,23 +48,60 @@ app.post('/api/auth/registro', async (req, res) => {
             return res.status(400).json({ exito: false, mensaje: 'Nombre, email y contraseña son requeridos' });
         }
 
+        // Verificar dominio permitido
+        const dominio = email.split('@')[1];
+        const dominioValido = await pool.query(
+            'SELECT id FROM dominios_permitidos WHERE dominio = $1 AND activo = true',
+            [dominio]
+        );
+
+        if (dominioValido.rows.length === 0) {
+            return res.status(400).json({
+                exito: false,
+                mensaje: 'Dominio de correo no permitido. Usa: gmail.com, hotmail.com, outlook.com, yahoo.com'
+            });
+        }
+
+        // Verificar si el email ya existe
         const existe = await pool.query('SELECT id FROM consultorios WHERE email = $1', [email]);
         if (existe.rows.length > 0) {
             return res.status(400).json({ exito: false, mensaje: 'El email ya está registrado' });
         }
 
-        const bcrypt = require('bcrypt');
         const password_hash = await bcrypt.hash(password, 10);
+        const tokenVerificacion = crypto.randomBytes(32).toString('hex');
 
         const result = await pool.query(
+            `INSERT INTO consultorios (nombre, email, password_hash, telefono, direccion) 
+             VALUES ($1, $2, $3, $4, $5) 
+             RETURNING id, nombre, email`,
+            [nombre, email, password_hash, telefono, direccion]
+        );
+
+        // Crear usuario admin con email_verificado = false
+        await pool.query(
             `INSERT INTO usuarios (consultorio_id, nombre, email, password_hash, rol, activo, token_verificacion, email_verificado) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
             [result.rows[0].id, nombre, email, password_hash, 'admin', true, tokenVerificacion, false]
         );
 
-        res.status(201).json({ exito: true, mensaje: 'Consultorio registrado correctamente', consultorio: result.rows[0] });
+        // Enviar email de verificación
+        const urlVerificacion = `${process.env.FRONTEND_URL || 'https://mediflow-frontend-tau.vercel.app'}/verificar/${tokenVerificacion}`;
+
+        await resend.emails.send({
+            from: EMAIL_FROM,
+            to: email,
+            subject: 'Verifica tu cuenta - MediFlow Pro',
+            html: `<h1>Bienvenido a MediFlow Pro</h1><p>Hola ${nombre},</p><p>Gracias por registrarte. Por favor verifica tu cuenta haciendo clic en el siguiente enlace:</p><a href="${urlVerificacion}">${urlVerificacion}</a><p>Este enlace expirará en 24 horas.</p><p>Saludos,<br>El equipo de MediFlow</p>`
+        });
+
+        res.status(201).json({
+            exito: true,
+            mensaje: 'Consultorio registrado correctamente. Revisa tu correo para verificar tu cuenta.',
+            consultorio: result.rows[0]
+        });
     } catch (error) {
-        console.error(error);
+        console.error('❌ Error en registro:', error);
         res.status(500).json({ exito: false, mensaje: error.message });
     }
 });
@@ -73,12 +110,12 @@ app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        // 1. Buscar primero en consultorios (para usuarios admin)
-        let usuario = await pool.query('SELECT * FROM consultorios WHERE email = $1', [email]);
+        // 1. Buscar en consultorios (administradores)
+        let consultorioResult = await pool.query('SELECT * FROM consultorios WHERE email = $1', [email]);
         let esConsultorio = true;
-        let usuarioData = usuario.rows[0];
+        let usuarioData = consultorioResult.rows[0];
 
-        // 2. Si no es consultorio, buscar en usuarios (para médicos y secretarias)
+        // 2. Si no se encuentra en consultorios, buscar en usuarios (médicos, secretarias)
         if (!usuarioData) {
             const userResult = await pool.query(`
                 SELECT u.*, c.nombre as consultorio_nombre 
@@ -89,10 +126,13 @@ app.post('/api/auth/login', async (req, res) => {
             usuarioData = userResult.rows[0];
             esConsultorio = false;
         }
+
+        // 3. Validar que el usuario existe
         if (!usuarioData) {
             return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
         }
-        // Verificar email confirmado (solo para usuarios de la tabla usuarios, no para consultorios)
+
+        // 4. Validar email verificado (solo para usuarios de la tabla usuarios, no para consultorios)
         if (!esConsultorio && usuarioData.email_verificado === false) {
             return res.status(401).json({
                 exito: false,
@@ -100,18 +140,13 @@ app.post('/api/auth/login', async (req, res) => {
             });
         }
 
-        // 3. Si no se encuentra en ninguna tabla
-        if (!usuarioData) {
-            return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
-        }
-
-        // 4. Verificar contraseña
+        // 5. Validar contraseña
         const passwordValida = await bcrypt.compare(password, usuarioData.password_hash);
         if (!passwordValida) {
             return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
         }
 
-        // 5. Crear token JWT
+        // 6. Generar payload del token
         let payload;
         if (esConsultorio) {
             payload = {
@@ -131,9 +166,10 @@ app.post('/api/auth/login', async (req, res) => {
             };
         }
 
+        // 7. Generar token JWT
         const token = jwt.sign(payload, process.env.JWT_SECRET || 'mediFlow_secreto_2026', { expiresIn: '24h' });
 
-        // 6. Respuesta exitosa
+        // 8. Respuesta exitosa
         res.json({
             exito: true,
             token,
@@ -148,7 +184,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error en login:', error);
-        res.status(500).json({ exito: false, mensaje: error.message });
+        res.status(500).json({ exito: false, mensaje: 'Error interno del servidor' });
     }
 });
 
