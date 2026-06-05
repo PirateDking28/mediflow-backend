@@ -11,6 +11,10 @@ const PORT = process.env.PORT || 8080;
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
+app.get('/api/test-simple', (req, res) => {
+    res.json({ mensaje: 'El servidor funciona' });
+});
+
 app.get('/api/diagnostico', (req, res) => {
     res.json({
         mensaje: 'Endpoint funciona',
