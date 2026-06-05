@@ -57,10 +57,9 @@ app.post('/api/auth/registro', async (req, res) => {
         const password_hash = await bcrypt.hash(password, 10);
 
         const result = await pool.query(
-            `INSERT INTO consultorios (nombre, email, password_hash, telefono, direccion) 
-             VALUES ($1, $2, $3, $4, $5) 
-             RETURNING id, nombre, email`,
-            [nombre, email, password_hash, telefono, direccion]
+            `INSERT INTO usuarios (consultorio_id, nombre, email, password_hash, rol, activo, token_verificacion, email_verificado) 
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [result.rows[0].id, nombre, email, password_hash, 'admin', true, tokenVerificacion, false]
         );
 
         res.status(201).json({ exito: true, mensaje: 'Consultorio registrado correctamente', consultorio: result.rows[0] });
@@ -89,6 +88,16 @@ app.post('/api/auth/login', async (req, res) => {
             `, [email]);
             usuarioData = userResult.rows[0];
             esConsultorio = false;
+        }
+        if (!usuarioData) {
+            return res.status(401).json({ exito: false, mensaje: 'Email o contraseña incorrectos' });
+        }
+        // Verificar email confirmado (solo para usuarios de la tabla usuarios, no para consultorios)
+        if (!esConsultorio && usuarioData.email_verificado === false) {
+            return res.status(401).json({
+                exito: false,
+                mensaje: 'Por favor verifica tu correo electrónico antes de iniciar sesión. Revisa tu bandeja de entrada.'
+            });
         }
 
         // 3. Si no se encuentra en ninguna tabla
