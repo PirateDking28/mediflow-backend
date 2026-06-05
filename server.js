@@ -346,14 +346,13 @@ app.get('/api/citas', verificarToken, async (req, res) => {
         const result = await pool.query(
             `SELECT c.*, 
                     p.nombre as paciente_nombre,
-                    u.nombre as medico_nombre,
-                    c.fecha_hora_local as fecha_hora
+                    u.nombre as medico_nombre
              FROM citas c
              JOIN pacientes p ON c.paciente_id = p.id
              JOIN medicos m ON c.medico_id = m.id
              JOIN usuarios u ON m.usuario_id = u.id
              WHERE c.consultorio_id = $1 AND c.estado_cita = 'pendiente'
-             ORDER BY c.fecha_hora_local ASC`,
+             ORDER BY c.fecha_hora ASC`,
             [req.usuario.id]
         );
         res.json({ citas: result.rows });
@@ -365,27 +364,36 @@ app.get('/api/citas', verificarToken, async (req, res) => {
 
 app.post('/api/citas', verificarToken, async (req, res) => {
     try {
-        const { paciente_id, medico_id, fecha, hora, duracion, notas } = req.body;
+        const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
 
-        if (!paciente_id || !medico_id || !fecha || !hora) {
-            return res.status(400).json({ error: 'Faltan campos requeridos' });
+        if (!paciente_id || !medico_id || !fecha_hora) {
+            return res.status(400).json({ error: 'Paciente, médico y fecha/hora son requeridos' });
         }
 
-        // Crear string de fecha/hora local (sin zona horaria)
-        const fechaHoraLocal = `${fecha} ${hora}:00`;
-
-        // Validar que la fecha/hora no sea pasada
+        const fechaCita = new Date(fecha_hora);
         const ahora = new Date();
-        const [fechaParte, horaParte] = fechaHoraLocal.split(' ');
-        const [anio, mes, dia] = fechaParte.split('-');
-        const [horaCita, minutoCita] = horaParte.split(':');
-        const fechaCitaLocal = new Date(anio, mes - 1, dia, horaCita, minutoCita);
 
-        if (fechaCitaLocal < ahora) {
-            return res.status(400).json({ error: 'No se pueden agendar citas en horarios pasados' });
+        // Validar que no sea fecha pasada
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+        const fechaCitaDate = new Date(fechaCita);
+        fechaCitaDate.setHours(0, 0, 0, 0);
+
+        if (fechaCitaDate < hoy) {
+            return res.status(400).json({ error: 'No se pueden agendar citas en fechas pasadas' });
         }
 
-        // Validaciones de médico y paciente...
+        // Validar hora pasada solo si es hoy
+        if (fechaCitaDate.getTime() === hoy.getTime()) {
+            const ahoraMinutos = ahora.getHours() * 60 + ahora.getMinutes();
+            const citaMinutos = fechaCita.getHours() * 60 + fechaCita.getMinutes();
+
+            if (citaMinutos <= ahoraMinutos) {
+                return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
+            }
+        }
+
+        // Validar médico
         const medicoExiste = await pool.query(
             'SELECT id FROM medicos WHERE id = $1 AND consultorio_id = $2',
             [medico_id, req.usuario.id]
@@ -394,6 +402,7 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Médico no válido' });
         }
 
+        // Validar paciente
         const pacienteExiste = await pool.query(
             'SELECT id FROM pacientes WHERE id = $1 AND consultorio_id = $2',
             [paciente_id, req.usuario.id]
@@ -402,12 +411,24 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Paciente no válido' });
         }
 
-        // Insertar la cita (guardar la fecha/hora local como texto)
+        // Verificar conflicto de horario con el médico
+        const conflicto = await pool.query(
+            `SELECT id FROM citas 
+             WHERE medico_id = $1 
+               AND fecha_hora = $2 
+               AND estado_cita != 'cancelada'`,
+            [medico_id, fecha_hora]
+        );
+        if (conflicto.rows.length > 0) {
+            return res.status(400).json({ error: 'El médico ya tiene una cita en ese horario' });
+        }
+
+        // Insertar cita
         const result = await pool.query(
-            `INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora_local, duracion, notas, estado_cita, registrado_por) 
+            `INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora, duracion, notas, estado_cita, registrado_por) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
              RETURNING *`,
-            [req.usuario.id, paciente_id, medico_id, fechaHoraLocal, duracion || 30, notas, 'pendiente', req.usuario.id]
+            [req.usuario.id, paciente_id, medico_id, fecha_hora, duracion || 30, notas, 'pendiente', req.usuario.id]
         );
 
         res.status(201).json({ message: 'Cita creada exitosamente', cita: result.rows[0] });
