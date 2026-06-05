@@ -1306,43 +1306,174 @@ app.post('/api/paciente/:id/nota', verificarToken, async (req, res) => {
     }
 });
 
+// ========== RECUPERACIÓN DE CONTRASEÑA ==========
 
-app.get('/api/migrar-confirmacion', verificarToken, async (req, res) => {
+// Solicitar recuperación de contraseña
+app.post('/api/auth/recuperar', async (req, res) => {
     try {
-        // Solo admin puede ejecutar esto
-        if (req.usuario.rol !== 'admin') {
-            return res.status(403).json({ error: 'No autorizado' });
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ exito: false, mensaje: 'El email es requerido' });
         }
 
-        // Agregar columnas a usuarios
-        await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email_verificado BOOLEAN DEFAULT FALSE`);
-        await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_verificacion VARCHAR(255)`);
-        await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_recuperacion VARCHAR(255)`);
-        await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_recuperacion_expira TIMESTAMP`);
+        // Buscar usuario en consultorios (admin) o en usuarios (médicos/secretarias)
+        let usuario = await pool.query('SELECT id, email FROM consultorios WHERE email = $1', [email]);
+        let esConsultorio = true;
+        let usuarioData = usuario.rows[0];
 
-        // Crear tabla de dominios permitidos
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS dominios_permitidos (
-                id SERIAL PRIMARY KEY,
-                dominio VARCHAR(100) UNIQUE NOT NULL,
-                activo BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
+        if (!usuarioData) {
+            const userResult = await pool.query(
+                'SELECT id, email FROM usuarios WHERE email = $1',
+                [email]
+            );
+            usuarioData = userResult.rows[0];
+            esConsultorio = false;
+        }
 
-        // Insertar dominios básicos
-        await pool.query(`
-            INSERT INTO dominios_permitidos (dominio) VALUES 
-            ('gmail.com'), ('hotmail.com'), ('outlook.com'), ('yahoo.com')
-            ON CONFLICT (dominio) DO NOTHING
-        `);
+        if (!usuarioData) {
+            // Por seguridad, no revelamos si el email existe o no
+            return res.json({ exito: true, mensaje: 'Si el email está registrado, recibirás un enlace para restablecer tu contraseña.' });
+        }
 
-        res.json({ mensaje: 'Migración completada exitosamente' });
+        // Generar token único
+        const token = crypto.randomBytes(32).toString('hex');
+        const expira = new Date();
+        expira.setHours(expira.getHours() + 1); // Token válido por 1 hora
+
+        // Guardar token en la tabla correspondiente
+        if (esConsultorio) {
+            await pool.query(
+                'UPDATE consultorios SET token_recuperacion = $1, token_recuperacion_expira = $2 WHERE id = $3',
+                [token, expira, usuarioData.id]
+            );
+        } else {
+            await pool.query(
+                'UPDATE usuarios SET token_recuperacion = $1, token_recuperacion_expira = $2 WHERE id = $3',
+                [token, expira, usuarioData.id]
+            );
+        }
+
+        // Enviar email
+        const urlRestablecer = `${process.env.FRONTEND_URL || 'https://mediflow-frontend-tau.vercel.app'}/restablecer/${token}`;
+
+        await resend.emails.send({
+            from: EMAIL_FROM,
+            to: email,
+            subject: 'Recupera tu contraseña - MediFlow Pro',
+            html: `
+                <h1>Recuperación de contraseña</h1>
+                <p>Hemos recibido una solicitud para restablecer tu contraseña.</p>
+                <p>Haz clic en el siguiente enlace para crear una nueva contraseña (válido por 1 hora):</p>
+                <a href="${urlRestablecer}">${urlRestablecer}</a>
+                <p>Si no solicitaste este cambio, ignora este mensaje.</p>
+                <p>Saludos,<br>El equipo de MediFlow</p>
+            `
+        });
+
+        res.json({ exito: true, mensaje: 'Si el email está registrado, recibirás un enlace para restablecer tu contraseña.' });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ exito: false, mensaje: error.message });
     }
 });
+
+// Restablecer contraseña
+app.post('/api/auth/restablecer/:token', async (req, res) => {
+    try {
+        const { token } = req.params;
+        const { nueva_password } = req.body;
+
+        if (!nueva_password || nueva_password.length < 6) {
+            return res.status(400).json({ exito: false, mensaje: 'La contraseña debe tener al menos 6 caracteres' });
+        }
+
+        // Buscar en consultorios
+        let usuario = await pool.query(
+            'SELECT id, email, token_recuperacion_expira FROM consultorios WHERE token_recuperacion = $1',
+            [token]
+        );
+        let esConsultorio = true;
+        let usuarioData = usuario.rows[0];
+
+        if (!usuarioData) {
+            const userResult = await pool.query(
+                'SELECT id, email, token_recuperacion_expira FROM usuarios WHERE token_recuperacion = $1',
+                [token]
+            );
+            usuarioData = userResult.rows[0];
+            esConsultorio = false;
+        }
+
+        if (!usuarioData) {
+            return res.status(400).json({ exito: false, mensaje: 'Token inválido o expirado' });
+        }
+
+        // Verificar expiración
+        const ahora = new Date();
+        if (ahora > usuarioData.token_recuperacion_expira) {
+            return res.status(400).json({ exito: false, mensaje: 'El enlace ha expirado. Solicita uno nuevo.' });
+        }
+
+        // Hashear nueva contraseña
+        const password_hash = await bcrypt.hash(nueva_password, 10);
+
+        // Actualizar contraseña y limpiar token
+        if (esConsultorio) {
+            await pool.query(
+                'UPDATE consultorios SET password_hash = $1, token_recuperacion = NULL, token_recuperacion_expira = NULL WHERE id = $2',
+                [password_hash, usuarioData.id]
+            );
+        } else {
+            await pool.query(
+                'UPDATE usuarios SET password_hash = $1, token_recuperacion = NULL, token_recuperacion_expira = NULL WHERE id = $2',
+                [password_hash, usuarioData.id]
+            );
+        }
+
+        res.json({ exito: true, mensaje: 'Contraseña actualizada correctamente. Ahora puedes iniciar sesión.' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ exito: false, mensaje: error.message });
+    }
+});
+
+// app.get('/api/migrar-confirmacion', verificarToken, async (req, res) => {
+//     try {
+//         // Solo admin puede ejecutar esto
+//         if (req.usuario.rol !== 'admin') {
+//             return res.status(403).json({ error: 'No autorizado' });
+//         }
+
+//         // Agregar columnas a usuarios
+//         await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email_verificado BOOLEAN DEFAULT FALSE`);
+//         await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_verificacion VARCHAR(255)`);
+//         await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_recuperacion VARCHAR(255)`);
+//         await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_recuperacion_expira TIMESTAMP`);
+
+//         // Crear tabla de dominios permitidos
+//         await pool.query(`
+//             CREATE TABLE IF NOT EXISTS dominios_permitidos (
+//                 id SERIAL PRIMARY KEY,
+//                 dominio VARCHAR(100) UNIQUE NOT NULL,
+//                 activo BOOLEAN DEFAULT TRUE,
+//                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+//             )
+//         `);
+
+//         // Insertar dominios básicos
+//         await pool.query(`
+//             INSERT INTO dominios_permitidos (dominio) VALUES 
+//             ('gmail.com'), ('hotmail.com'), ('outlook.com'), ('yahoo.com')
+//             ON CONFLICT (dominio) DO NOTHING
+//         `);
+
+//         res.json({ mensaje: 'Migración completada exitosamente' });
+//     } catch (error) {
+//         console.error(error);
+//         res.status(500).json({ error: error.message });
+//     }
+// });
 
 // ========== INICIAR SERVIDOR ==========
 app.listen(PORT, () => {
