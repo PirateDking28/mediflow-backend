@@ -370,32 +370,28 @@ app.get('/api/citas', verificarToken, async (req, res) => {
     }
 });
 app.post('/api/citas', verificarToken, async (req, res) => {
-    try {
-        const { paciente_id, medico_id, fecha_hora, duracion, notas } = req.body;
-
-        const fechaCita = new Date(fecha_hora);
+ try {
+        const { paciente_id, medico_id, fecha, hora, duracion, notas } = req.body;
+        
+        // Combinar fecha y hora en formato local
+        const fechaHoraStr = `${fecha}T${hora}:00`;
+        
+        // Crear fecha en zona horaria local y convertir a UTC para guardar
+        const fechaLocal = new Date(fechaHoraStr);
+        // Restar la diferencia de zona horaria para guardar en UTC
+        const offset = fechaLocal.getTimezoneOffset();
+        const fechaUTC = new Date(fechaLocal.getTime() - offset * 60000);
+        
+        // Usar fechaUTC.toISOString() para guardar
+        const fechaHoraUTC = fechaUTC.toISOString();
+        
+        // Validar fecha pasada (comparar en local)
         const ahora = new Date();
-
-        // 1. Validar fecha pasada
-        const hoy = new Date();
-        hoy.setHours(0, 0, 0, 0);
-        const fechaCitaDate = new Date(fechaCita);
-        fechaCitaDate.setHours(0, 0, 0, 0);
-
-        if (fechaCitaDate < hoy) {
-            return res.status(400).json({ error: 'No se pueden agendar citas en fechas pasadas' });
+        if (fechaLocal < ahora) {
+            return res.status(400).json({ error: 'No se pueden agendar citas en horarios pasados' });
         }
 
-        // 2. Validar hora pasada (solo para hoy)
-        //if (fechaCitaDate.getTime() === hoy.getTime()) {
-        //    const ahoraMinutos = ahora.getHours() * 60 + ahora.getMinutes();
-        //    const citaMinutos = fechaCita.getHours() * 60 + fechaCita.getMinutes();
-        //    
-        //    if (citaMinutos < ahoraMinutos) {
-        //        return res.status(400).json({ error: 'No se pueden agendar citas en horarios que ya pasaron' });
-        //    }
-        // }
-
+       
         // 3. Validar que el médico existe
         const medicoExiste = await pool.query(
             'SELECT id FROM medicos WHERE id = $1 AND consultorio_id = $2',
@@ -443,9 +439,9 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             `INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora, duracion, notas, estado_cita, registrado_por) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
              RETURNING *`,
-            [req.usuario.id, paciente_id, medico_id, fecha_hora, duracion || 30, notas, 'pendiente', req.usuario.id]
+            [req.usuario.id, paciente_id, medico_id, fechaHoraUTC, duracion || 30, notas, 'pendiente', req.usuario.id]
         );
-
+        
         res.status(201).json({ message: 'Cita creada exitosamente', cita: result.rows[0] });
     } catch (error) {
         console.error('❌ Error:', error);
