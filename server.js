@@ -370,29 +370,31 @@ app.get('/api/citas', verificarToken, async (req, res) => {
     }
 });
 app.post('/api/citas', verificarToken, async (req, res) => {
- try {
+    try {
+        // Recibir fecha y hora por separado
         const { paciente_id, medico_id, fecha, hora, duracion, notas } = req.body;
-        
-        // Combinar fecha y hora en formato local
+
+        // Validar que los campos requeridos estén presentes
+        if (!paciente_id || !medico_id || !fecha || !hora) {
+            return res.status(400).json({ error: 'Faltan campos requeridos (paciente, médico, fecha, hora)' });
+        }
+
+        // Crear fecha en zona horaria local a partir de fecha y hora
         const fechaHoraStr = `${fecha}T${hora}:00`;
-        
-        // Crear fecha en zona horaria local y convertir a UTC para guardar
         const fechaLocal = new Date(fechaHoraStr);
-        // Restar la diferencia de zona horaria para guardar en UTC
-        const offset = fechaLocal.getTimezoneOffset();
-        const fechaUTC = new Date(fechaLocal.getTime() - offset * 60000);
-        
-        // Usar fechaUTC.toISOString() para guardar
-        const fechaHoraUTC = fechaUTC.toISOString();
-        
-        // Validar fecha pasada (comparar en local)
+
+        // Validar que la fecha no sea pasada (en hora local)
         const ahora = new Date();
         if (fechaLocal < ahora) {
             return res.status(400).json({ error: 'No se pueden agendar citas en horarios pasados' });
         }
 
-       
-        // 3. Validar que el médico existe
+        // Calcular UTC para guardar en la base de datos
+        const offset = fechaLocal.getTimezoneOffset();
+        const fechaUTC = new Date(fechaLocal.getTime() - offset * 60000);
+        const fechaHoraUTC = fechaUTC.toISOString();
+
+        // Validar que el médico existe
         const medicoExiste = await pool.query(
             'SELECT id FROM medicos WHERE id = $1 AND consultorio_id = $2',
             [medico_id, req.usuario.id]
@@ -401,7 +403,7 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Médico no válido' });
         }
 
-        // 4. Validar que el paciente existe
+        // Validar que el paciente existe
         const pacienteExiste = await pool.query(
             'SELECT id FROM pacientes WHERE id = $1 AND consultorio_id = $2',
             [paciente_id, req.usuario.id]
@@ -410,38 +412,14 @@ app.post('/api/citas', verificarToken, async (req, res) => {
             return res.status(400).json({ error: 'Paciente no válido' });
         }
 
-        // 5. Validar que el médico no tenga otra cita a la misma hora
-        const conflictoMedico = await pool.query(
-            `SELECT id FROM citas 
-             WHERE medico_id = $1 
-               AND fecha_hora = $2 
-               AND estado_cita != 'cancelada'`,
-            [medico_id, fecha_hora]
-        );
-        if (conflictoMedico.rows.length > 0) {
-            return res.status(400).json({ error: 'El médico ya tiene una cita en ese horario' });
-        }
-
-        // 6. Validar que el paciente no tenga otra cita a la misma hora
-        const conflictoPaciente = await pool.query(
-            `SELECT id FROM citas 
-             WHERE paciente_id = $1 
-               AND fecha_hora = $2 
-               AND estado_cita != 'cancelada'`,
-            [paciente_id, fecha_hora]
-        );
-        if (conflictoPaciente.rows.length > 0) {
-            return res.status(400).json({ error: 'El paciente ya tiene una cita en ese horario' });
-        }
-
-        // Insertar cita
+        // Insertar la cita
         const result = await pool.query(
             `INSERT INTO citas (consultorio_id, paciente_id, medico_id, fecha_hora, duracion, notas, estado_cita, registrado_por) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
              RETURNING *`,
             [req.usuario.id, paciente_id, medico_id, fechaHoraUTC, duracion || 30, notas, 'pendiente', req.usuario.id]
         );
-        
+
         res.status(201).json({ message: 'Cita creada exitosamente', cita: result.rows[0] });
     } catch (error) {
         console.error('❌ Error:', error);
