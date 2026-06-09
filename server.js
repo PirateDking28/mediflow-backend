@@ -88,7 +88,7 @@ app.post('/api/auth/registro', async (req, res) => {
         await pool.query(
             `INSERT INTO usuarios (consultorio_id, nombre, email, password_hash, rol, activo, token_verificacion, email_verificado) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [result.rows[0].id, nombre, email, password_hash, 'admin', true, tokenVerificacion, false]
+            [result.rows[0].id, nombre, email, password_hash, 'admin', true, tokenVerificacion, true]
         );
 
         // Enviar email de verificación
@@ -1410,19 +1410,20 @@ app.post('/api/auth/recuperar', async (req, res) => {
         // Enviar email
         const urlRestablecer = `${process.env.FRONTEND_URL || 'https://mediflow-frontend-tau.vercel.app'}/restablecer/${token}`;
 
-        await resend.emails.send({
-            from: EMAIL_FROM,
-            to: email,
-            subject: 'Recupera tu contraseña - MediFlow Pro',
-            html: `
-                <h1>Recuperación de contraseña</h1>
-                <p>Hemos recibido una solicitud para restablecer tu contraseña.</p>
-                <p>Haz clic en el siguiente enlace para crear una nueva contraseña (válido por 1 hora):</p>
-                <a href="${urlRestablecer}">${urlRestablecer}</a>
-                <p>Si no solicitaste este cambio, ignora este mensaje.</p>
-                <p>Saludos,<br>El equipo de MediFlow</p>
-            `
-        });
+        // await resend.emails.send({
+        //     from: EMAIL_FROM,
+        //     to: email,
+        //     subject: 'Recupera tu contraseña - MediFlow Pro',
+        //     html: `
+        //         <h1>Recuperación de contraseña</h1>
+        //         <p>Hemos recibido una solicitud para restablecer tu contraseña.</p>
+        //         <p>Haz clic en el siguiente enlace para crear una nueva contraseña (válido por 1 hora):</p>
+        //         <a href="${urlRestablecer}">${urlRestablecer}</a>
+        //         <p>Si no solicitaste este cambio, ignora este mensaje.</p>
+        //         <p>Saludos,<br>El equipo de MediFlow</p>
+        //     `
+        // });
+        console.log('🔧 Email de verificación deshabilitado temporalmente');
 
         res.json({ exito: true, mensaje: 'Si el email está registrado, recibirás un enlace para restablecer tu contraseña.' });
     } catch (error) {
