@@ -54,19 +54,19 @@ app.post('/api/auth/registro', async (req, res) => {
             return res.status(400).json({ exito: false, mensaje: 'Nombre, email y contraseña son requeridos' });
         }
 
-        // Verificar dominio permitido
-        const dominio = email.split('@')[1];
-        const dominioValido = await pool.query(
-            'SELECT id FROM dominios_permitidos WHERE dominio = $1 AND activo = true',
-            [dominio]
-        );
+        // // Verificar dominio permitido
+        // const dominio = email.split('@')[1];
+        // const dominioValido = await pool.query(
+        //     'SELECT id FROM dominios_permitidos WHERE dominio = $1 AND activo = true',
+        //     [dominio]
+        // );
 
-        if (dominioValido.rows.length === 0) {
-            return res.status(400).json({
-                exito: false,
-                mensaje: 'Dominio de correo no permitido. Usa: gmail.com, hotmail.com, outlook.com, yahoo.com'
-            });
-        }
+        // if (dominioValido.rows.length === 0) {
+        //     return res.status(400).json({
+        //         exito: false,
+        //         mensaje: 'Dominio de correo no permitido. Usa: gmail.com, hotmail.com, outlook.com, yahoo.com'
+        //     });
+        // }
 
         // Verificar si el email ya existe
         const existe = await pool.query('SELECT id FROM consultorios WHERE email = $1', [email]);
